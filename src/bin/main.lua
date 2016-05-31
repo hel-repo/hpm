@@ -1,3 +1,5 @@
+local toml = require("toml")
+local fs = require("filesystem")
 local component = require("component")
 local gpu = component.gpu
 
@@ -25,12 +27,26 @@ local outputLevels = {
 local colorsOn = true
 local outputLevel = outputLevels.debug
 
+local config = {}
+local defaultConfig = {
+  tmp = "/tmp/.hpm"
+}
+
+------------------------------------------
+-- Optimization
+
 local tRemove, tUnpack = table.remove, table.unpack
+local getenv, setenv = os.getenv, os.setenv
+local fConcat, fExists, fMD = fs.concat, fs.exists, fs.makeDirectory
+local setFG, getFG = gpu.setForeground, gpu.getForeground
+local write = io.write
+local format, rep = string.format, string.rep
+local read, open = io.read, io.open
 
 ------------------------------------------
 -- Utils
 
-function contains(table, element)
+local function contains(table, element)
   for k, value in pairs(table) do
     if value == element then
       return true, k
@@ -42,10 +58,6 @@ end
 
 ------------------------------------------
 -- Output
-
-local setFG, getFG = gpu.setForeground, gpu.getForeground
-local write = io.write
-local format, rep = string.format, string.rep
 
 local oInfo, oSucc, oWarn, oError, oDebug
 do  -- create output functions, like debug, info, error
@@ -101,15 +113,13 @@ end
 ------------------------------------------
 -- Input
 
-local read = io.read
-
-local function iQuestion(text, correctAnswers, onInput, default, likeList)
+local function iQuestion(text, correctAnswers, onInput, default, likeList, color)
   local wasRead = false
   local finalInput, finalInputIndex
   
   while not wasRead do
     if colorsOn then
-      setFG(colors.info)
+      setFG(color or colors.info)
       write(" [??] ")
       setFG(colors.white)
       write(text)
@@ -122,7 +132,7 @@ local function iQuestion(text, correctAnswers, onInput, default, likeList)
       
       for i, option in ipairs(correctAnswers) do
         if colorsOn then
-          setFG(colors.info)
+          setFG(color or colors.info)
         end
         
         if default and i == default then
@@ -184,56 +194,166 @@ local function iQuestion(text, correctAnswers, onInput, default, likeList)
     end
   end
   
-  return onInput(finalInput, finalInputIndex) or true
+  return onInput(finalInput, finalInputIndex)
+end
+
+function iText(text, color)
+  while true do
+    if colorsOn then
+      setFG(color or colors.info)
+      write(" [??] ")
+      setFG(colors.white)
+      write(text .. ": ")
+    else
+      write(" [??] " .. text .. ": ")
+    end
+    
+    local input = read()
+    
+    if input then
+      return input
+    end
+  end
+end
+
+------------------------------------------
+-- Config
+
+local function readConfig()
+  oInfo("Reading configuration file...")
+  oDebug("Getting HPM_ROOT...")
+  local env = getenv("HPM_ROOT")
+  
+  if not env then
+    oLine()
+    
+    oDebug("HPM_ROOT does NOT exists.")
+    oWarn("HPM_ROOT variable does NOT exists.")
+    if not iQuestion("Do you want to specify it?", {"y", "n"}, function (input)
+          if input == "y" then
+            setenv("HPM_ROOT", iText("HPM_ROOT", colors.warn))
+            return true
+          end
+          
+          oLine()
+          
+          oError("Configuration file has NOT been read!")
+          return
+        end, 1, _, colors.warn) then
+        
+      return
+    end
+  else
+    oDebug("HPM_ROOT found: %s!", env)
+  end
+  
+  env = getenv("HPM_ROOT")
+  
+  if not fs.exists(env) then
+    oDebug("Directory %s does NOT exists!", env)
+    oDebug("Making directory %s...", env)
+    local ok, err = fs.makeDirectory(env)
+    
+    if not ok then
+      oLine()
+      
+      oDebug("Could NOT create directory (%s): %s", env, err)
+      oError("Could NOT create directory (%s): %s", env, err)
+      
+      oLine()
+      
+      oError("Configuration file has NOT been read!")
+      return
+    end
+    
+    oDebug("Directory %s has been made!", env)
+  end
+  
+  local conf_path = fs.concat(env, "config.toml")
+  
+  if not fs.exists(conf_path) then
+    oDebug("File %s does NOT exists!", conf_path)
+    
+    oLine()
+    
+    oWarn("Could NOT find configuration file in HPM_ROOT.")
+    if not iQuestion("Do you want to set default config?", {"y", "n"}, function (input)
+          if input == "y" then
+            oDebug("Opening file %s...", conf_path)
+            local file, err = open(conf_path, "w")
+            
+            if not file then
+              oDebug("File %s has NOT been opened!", conf_path)
+              oError("Could not open %s: %s", conf_path, err)
+              
+              oLine()
+              
+              oError("Configuration file has NOT been read!")
+              return
+            end
+            
+            oDebug("File %s has been opened!", conf_path)
+            oDebug("Writing default config...")
+            
+            file:write(toml.encode(defaultConfig))
+            file:flush()
+            file:close()
+            
+            oDebug("Default config has been wrote.")
+            return true
+          end
+          
+          oLine()
+          
+          oError("Configuration file has NOT been read!")
+          return
+        end, 1, _, colors.warn) then
+        
+      return
+    end
+  end
+
+  oDebug("Opening file %s...", conf_path)
+  local file, err = open(conf_path, "r")
+  
+  if not file then
+    oLine()
+    
+    oDebug("File %s has NOT been opened!", conf_path)
+    oError("Could not open %s: %s", conf_path, err)
+    
+    oLine()
+    
+    oError("Configuration file has NOT been read!")
+    return
+  end
+  
+  oDebug("File %s has been opened!", conf_path)
+  oDebug("Reading & parsing config...")
+  local config_str = file:read("*all")
+  local ok, config_table = pcall(toml.parse, config_str)
+  
+  if not ok then
+    oDebug("TOML error: %s", config_table)
+    oError("TOML error: %s", config_table)
+    
+    oLine()
+    
+    oError("Configuration file has NOT been read!")
+    return
+  end
+  
+  config = config_table  -- yeah!
 end
 
 ------------------------------------------
 -- Main function
 
 local function main(...)
-  oInfo("I'm info!")
-  oSucc("I'm success!")
-  oWarn("I'm warning!")
-  oError("I'm error!")
-  oDebug("I'm debug!")
+  oDebug("M-m-m... Cookies...")
   
-  oLine()
-  
-  oError("I'm very very very")
-  oPadding(colors.error, "long error")
-  
-  oLine()
-  
-  question("Are you sure want to do something?", {"y", "n"}, function (input)
-    oSucc("Yup! `%s`", input)
-  end, 1)
-  
-  oLine()
-  
-  question("Are you sure want to do something?", 
-    {"Yes!", "No!", "Shut Up!"}, function (input)
-      oSucc("Yup! `%s`", input)
-    end, 
-  1, true)
-
-  oLine()
-  
-  question("Are you sure want to do something?", {"y", "n"}, function (input)
-    oSucc("Yup! `%s`", input)
-  end)
-  
-  oLine()
-  
-  question("Are you sure want to do something?", 
-    {"Yes!", "No!", "Shut Up!"}, function (input)
-      oSucc("Yup! `%s`", input)
-    end, 
-  _, true)
-  
-  setFG(colors.white)
+  readConfig()
 end
 
-------------------------------------------
--- Config file
-
 main(...)
+setFG(colors.white)
