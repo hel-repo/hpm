@@ -7,7 +7,7 @@ HPM is package manager for OpenComputers (minecraft mod)
 
 It's in very early development stage, so contribute.
 
-## Feauters
+## Features
  * OpenSource ;)
  * Fast
  * Configurable
