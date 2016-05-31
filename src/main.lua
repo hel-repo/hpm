@@ -23,14 +23,29 @@ local outputLevels = {
 }
 
 local colorsOn = true
-local outputLevel = 4
+local outputLevel = outputLevels.debug
+
+local tRemove, tUnpack = table.remove, table.unpack
 
 ------------------------------------------
--- I/O
+-- Utils
+
+function contains(table, element)
+  for k, value in pairs(table) do
+    if value == element then
+      return true, k
+    end
+  end
+  
+  return false
+end
+
+------------------------------------------
+-- Output
 
 local setFG, getFG = gpu.setForeground, gpu.getForeground
 local write = io.write
-local format = string.format
+local format, rep = string.format, string.rep
 
 local oInfo, oSucc, oWarn, oError, oDebug
 do  -- create output functions, like debug, info, error
@@ -51,22 +66,167 @@ do  -- create output functions, like debug, info, error
     end
   end
 
-  oInfo  = outputFactory(outputLevels.info,  "==", colors.info)
+  oInfo  = outputFactory(outputLevels.info,  "::", colors.info)
   oSucc  = outputFactory(outputLevels.succ,  "++", colors.succ)
   oWarn  = outputFactory(outputLevels.warn,  "!!", colors.warn, colors.warn)
-  oError = outputFactory(outputLevels.error, "!!", colors.error, colors.error)
-  oDebug = outputFactory(outputLevels.debug, "--", colors.debug, colors.debug)
+  oError = outputFactory(outputLevels.error, "--", colors.error, colors.error)
+  oDebug = outputFactory(outputLevels.debug, "··", colors.debug, colors.debug)
+end
+
+local function oPadding(color, string, padding)
+  if colorsOn then
+    setFG(color)
+    write(rep(" ", padding or 6))
+    write(string .. "\n")
+  else
+    write(rep(" ", padding or 6) .. string .. "\n")
+  end
+end
+
+local function oArrow(arrowColor, string, padding, textColor, noEndLine)
+  if colorsOn then
+    setFG(arrowColor)
+    write(rep(" ", padding or 1) .. "=> ")
+    setFG(textColor or colors.white)
+    write(string .. (noEndLine and "" or "\n"))
+  else
+    write(rep(" ", padding or 1).. "=> " .. string .. "\n")
+  end
+end
+
+local function clearLine()
+  write("\n")
+end
+
+------------------------------------------
+-- Input
+
+local read = io.read
+
+local function question(text, correctAnswers, onInput, default, likeList)
+  local wasRead = false
+  local finalInput, finalInputIndex
+  
+  while not wasRead do
+    if colorsOn then
+      setFG(colors.info)
+      write(" [??] ")
+      setFG(colors.white)
+      write(text)
+    else
+      write(" [??] " .. text)
+    end
+    
+    if likeList then
+      write(".\n")
+      
+      for i, option in ipairs(correctAnswers) do
+        if colorsOn then
+          setFG(colors.info)
+        end
+        
+        if default and i == default then
+          write(rep(" ", 6) .. i .. ". [Default] ")
+        else
+          write(rep(" ", 6) .. i .. ". ")
+        end
+        
+        if colorsOn then
+          setFG(colors.white)
+        end
+        
+        write(option .. "\n")
+      end
+      
+      oArrow(colors.info, "Answer (1-" .. tonumber(#correctAnswers) .. "): ", _, _, true)
+      local input = read()
+      
+      local inputN = tonumber(input)
+      
+      if input and inputN and inputN > 0 and inputN <= #correctAnswers then
+        wasRead = true
+        finalInput = correctAnswers[inputN]
+        finalInputIndex = inputN
+      elseif default then
+        wasRead = true
+        finalInput = correctAnswers[default]
+        finalInputIndex = default
+      end
+    else
+      write(" (")
+      
+      for i, option in ipairs(correctAnswers) do
+        if default and i == default then
+          write("[" .. option .. "]")
+        else
+          write(option)
+        end
+        
+        if i < #correctAnswers then
+          write("/")
+        end
+      end
+      write("): ")
+      
+      local input = read()
+      
+      local containsInput, key = contains(correctAnswers, input)
+      
+      if input and containsInput then
+        wasRead = true
+        finalInput = input
+        finalInputIndex = key
+      elseif default then
+        wasRead = true
+        finalInput = correctAnswers[default]
+        finalInputIndex = default
+      end
+    end
+  end
+  
+  return onInput(finalInput, finalInputIndex) or true
 end
 
 ------------------------------------------
 -- Main function
 
-function main(...)
+local function main(...)
   oInfo("I'm info!")
   oSucc("I'm success!")
   oWarn("I'm warning!")
   oError("I'm error!")
   oDebug("I'm debug!")
+  
+  clearLine()
+  
+  oError("I'm very very very")
+  oPadding(colors.error, "long error")
+  
+  clearLine()
+  
+  question("Are you sure want to do something?", {"y", "n"}, function (input)
+    oSucc("Yup! `%s`", input)
+  end, 1)
+  
+  clearLine()
+  
+  question("Are you sure want to do something?", 
+    {"Yes!", "No!", "Shut Up!"}, function (input)
+      oSucc("Yup! `%s`", input)
+    end, 
+  1, true)
+
+  clearLine()
+  
+  question("Are you sure want to do something?", {"y", "n"}, function (input)
+    oSucc("Yup! `%s`", input)
+  end)
+  
+  question("Are you sure want to do something?", 
+    {"Yes!", "No!", "Shut Up!"}, function (input)
+      oSucc("Yup! `%s`", input)
+    end, 
+  _, true)
   
   setFG(colors.white)
 end
