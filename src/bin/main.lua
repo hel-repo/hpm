@@ -233,4 +233,7 @@ local function main(...)
   setFG(colors.white)
 end
 
+------------------------------------------
+-- Config file
+
 main(...)
