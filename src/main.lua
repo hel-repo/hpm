@@ -94,7 +94,7 @@ local function oArrow(arrowColor, string, padding, textColor, noEndLine)
   end
 end
 
-local function clearLine()
+local function oLine()
   write("\n")
 end
 
@@ -103,7 +103,7 @@ end
 
 local read = io.read
 
-local function question(text, correctAnswers, onInput, default, likeList)
+local function iQuestion(text, correctAnswers, onInput, default, likeList)
   local wasRead = false
   local finalInput, finalInputIndex
   
@@ -197,18 +197,18 @@ local function main(...)
   oError("I'm error!")
   oDebug("I'm debug!")
   
-  clearLine()
+  oLine()
   
   oError("I'm very very very")
   oPadding(colors.error, "long error")
   
-  clearLine()
+  oLine()
   
   question("Are you sure want to do something?", {"y", "n"}, function (input)
     oSucc("Yup! `%s`", input)
   end, 1)
   
-  clearLine()
+  oLine()
   
   question("Are you sure want to do something?", 
     {"Yes!", "No!", "Shut Up!"}, function (input)
@@ -216,11 +216,13 @@ local function main(...)
     end, 
   1, true)
 
-  clearLine()
+  oLine()
   
   question("Are you sure want to do something?", {"y", "n"}, function (input)
     oSucc("Yup! `%s`", input)
   end)
+  
+  oLine()
   
   question("Are you sure want to do something?", 
     {"Yes!", "No!", "Shut Up!"}, function (input)
