@@ -1,4 +1,5 @@
 local toml = require("toml")
+local shell = require("shell")
 local fs = require("filesystem")
 local component = require("component")
 local gpu = component.gpu
@@ -32,6 +33,30 @@ local defaultConfig = {
   tmp = "/tmp/.hpm"
 }
 
+local VERSION = "0.1.0"
+local USAGE = [[Hell Package Manager v%version%
+
+Usage: 
+  %name% [-v level] install <name>...
+  %name% [-v level] remove <name>...
+  %name% [-v level] list
+  %name% [-v level] info <name>
+  %name% [-v level] modules
+  %name% -V
+  %name% -h
+
+Options:
+  -v, --verbose    Be verbose
+  -V, --version    Print version and quit
+  -h, --help       Show this help message
+
+Commands:
+  install <name>...   Install package(s) <name>...
+  remove <name>...    Remove package(s) <name>...
+  list                Show list of installed packages
+  info <name> [-l]    Show info about package <name>
+]]
+
 ------------------------------------------
 -- Optimization
 
@@ -39,9 +64,8 @@ local tRemove, tUnpack = table.remove, table.unpack
 local getenv, setenv = os.getenv, os.setenv
 local fConcat, fExists, fMD = fs.concat, fs.exists, fs.makeDirectory
 local setFG, getFG = gpu.setForeground, gpu.getForeground
-local write = io.write
 local format, rep = string.format, string.rep
-local read, open = io.read, io.open
+local read, open, write = io.read, io.open, io.write
 
 ------------------------------------------
 -- Utils
@@ -344,6 +368,14 @@ local function readConfig()
   end
   
   config = config_table  -- yeah!
+end
+
+------------------------------------------
+-- Command line arguments
+
+local function printUsage(name)
+  local usage = select(USAGE:gsub("%version%", VERSION), 1):gsub("%name%", name)
+  print(usage)
 end
 
 ------------------------------------------
