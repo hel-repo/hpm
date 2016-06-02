@@ -12,6 +12,7 @@ It's in very early development stage, so contribute.
  * Fast
  * Configurable
  * Modular
+ * Cool
 
 ## Download
 No download link now, because it haven't been released yet.
