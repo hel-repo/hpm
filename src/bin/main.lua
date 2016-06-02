@@ -373,17 +373,35 @@ end
 ------------------------------------------
 -- Command line arguments
 
+local command, args, opts
+
 local function printUsage(name)
   local usage = select(USAGE:gsub("%version%", VERSION), 1):gsub("%name%", name)
   print(usage)
+end
+
+local function parseCL(...)
+  args, opts = shell.parse(...)
+  
+  local v = opts["v"] or opts["verbose"]
+  if v then
+    outputLevel = type(v) == "string" and outputLevels[v] or outputLevels.error
+  end
+  
+  oDebug("Output level: %d", outputLevel)
+  command = args[1]
+  
+  if opts["h"] or opts["help"] then
+    printUsage(select(..., 1))
+    os.exit(0)
+  end
 end
 
 ------------------------------------------
 -- Main function
 
 local function main(...)
-  oDebug("M-m-m... Cookies...")
-  
+  parseCL(...)
   readConfig()
 end
 
