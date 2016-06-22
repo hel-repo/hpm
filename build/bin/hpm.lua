@@ -5,6 +5,7 @@ request = require("internet").request
 local parse
 parse = require("shell").parse
 local options = { }
+local HEL_URL = "http://hel-roottree.rhcloud.com/"
 local log
 log = function(message)
   if not options.q then
@@ -15,6 +16,15 @@ local error
 error = function(message)
   if not options.q then
     return io.stderr:write(message)
+  end
+end
+local assert
+assert = function(statement, message)
+  if not statement then
+    if not options.q then
+      error(message)
+    end
+    return 
   end
 end
 if not isAvailable("internet") then
@@ -35,12 +45,24 @@ if #args < 1 then
   log("     files from the system.\n")
   return 
 end
+local parsePackageJSON
+parsePackageJSON = function(json)
+  return error("JSON parsing: Not implemented yet.")
+end
 local install
 install = function(package)
   if not package then
     return error("No package name was provided!")
   else
-    return error("install: Not implemented yet.")
+    log("Downloading... ")
+    local result, response = pcall(request(HEL_URL .. "packages/" .. package))
+    if result then
+      log("success.\n")
+      return parsePackageJSON(response)
+    else
+      log("failed.\n")
+      return error("HTTP request failed: " .. tostring(response) .. "\n")
+    end
   end
 end
 local remove

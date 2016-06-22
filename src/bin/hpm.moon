@@ -3,10 +3,14 @@ import request from require "internet"
 import parse from require "shell"
 
 options = {}
+HEL_URL = "http://hel-roottree.rhcloud.com/"
 
 -- Logging functions
 log = (message) -> if not options.q then io.write message
 error = (message) -> if not options.q then io.stderr\write message
+assert = (statement, message) -> if not statement
+  if not options.q then error message
+  return
 
 
 -- Check requirements
@@ -32,11 +36,22 @@ if #args < 1
 
 
 -- Commands implementation
+parsePackageJSON = (json) ->
+  error "JSON parsing: Not implemented yet."
+
 install = (package) ->
   if not package
     error "No package name was provided!"
   else
-    error "install: Not implemented yet."
+    log "Downloading... "
+    result, response = pcall request HEL_URL .. "packages/" .. package
+    if result
+      log "success.\n"
+      parsePackageJSON response
+    else
+      log "failed.\n"
+      error "HTTP request failed: " .. tostring(response) .. "\n"
+
 
 remove = (package) ->
   if not package
