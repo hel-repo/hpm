@@ -2,8 +2,27 @@ import isAvailable from require "component"
 import request from require "internet"
 import parse from require "shell"
 
+import exit from os
+
+--------------------------------------------------------------------------------
+
+-- Vatiables
 options = {}
+
+-- Constants
 HEL_URL = "http://hel-roottree.rhcloud.com/"
+USAGE = "Usage: hpm [-vqQ] <command> [<package>]
+  -q: Quiet mode - no error messages.
+
+Available commands:
+  install <package>: Downloads package from
+      Hel Repository, and install it into
+      the system.
+  remove <package>: Removes all package
+      files from the system.
+"
+
+--------------------------------------------------------------------------------
 
 -- Logging functions
 log = (message) -> if not options.q then io.write message
@@ -12,35 +31,27 @@ assert = (statement, message) -> if not statement
   if not options.q then error message
   return
 
-
 -- Check requirements
-if not isAvailable "internet"
-  error "This program requires an internet card to run."
-  return
+checkSystem = ->
+  unless isAvailable "internet"
+    error "This program requires an internet card to run."
+    exit!
 
 
 -- Parse command line arguments
-args, options = parse ...
+parseCLI = ->
+  args, options = parse ...
 
-if #args < 1
-  log "Usage: hpm [-q] <command> [<package>]\n"
-  log " -q: Quiet mode - no status messages.\n"
-  log "\n"
-  log "Available commands:\n"
-  log " install <package>: Downloads package from\n"
-  log "     Hel Repository, and install it into\n"
-  log "     the system.\n"
-  log " remove <package>: Removes all package\n"
-  log "     files from the system.\n"
-  return
-
+  if #args < 1
+    print USAGE
+    exit!
 
 -- Commands implementation
 parsePackageJSON = (json) ->
   error "JSON parsing: Not implemented yet."
 
 install = (package) ->
-  if not package
+  unless package
     error "No package name was provided!"
   else
     log "Downloading... "
@@ -52,17 +63,21 @@ install = (package) ->
       log "failed.\n"
       error "HTTP request failed: " .. tostring(response) .. "\n"
 
-
 remove = (package) ->
-  if not package
+  unless package
     error "No package name was provided!"
   else
     error "remove: Not implemented yet."
 
-
 -- Process given command
-switch args[1]
-  when "install"
-    install args[2]
-  when "remove"
-    remove args[2]
+process = ->
+  switch args[1]
+    when "install"
+      install args[2]
+    when "remove"
+      remove args[2]
+
+--------------------------------------------------------------------------------
+checkSystem!
+parseCLI!
+process!
