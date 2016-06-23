@@ -8,12 +8,13 @@ import write, stderr from io
 
 -- Variables
 options, args = {}, {}
+request = nil
 
 -- Constants
 HEL_URL = "http://hel-roottree.rhcloud.com/"
 USAGE   = "Usage: hpm [-vq] <command>
   -q: Quiet mode - no error messages.
-  -v: Verbose mode - many useful logs.
+  -v: Verbose mode - show additional info.
 
 Available commands:
   install <package>...  Download package from Hel Repository, and install it into the system.
@@ -27,62 +28,97 @@ Aviable package formats:
 --------------------------------------------------------------------------------
 
 -- Logging functions
-log = (level, message) ->
-  switch level
-    when "fatal"
-      print "[ )x ] " .. tostring message unless options.q
-    when "error"
-      print "[ ): ] " .. tostring message unless options.q
-    when "info"
-      print "[ (: ] " .. tostring message if options.v
+log =
+  fatal: (message) -> 
+    stderr\write "[ x( ] " .. tostring message unless options.q
+    exit 1,
+  error: (message) -> stderr\write "[ :( ] " .. tostring message unless options.q,
+  info: (message) -> print "[ :) ] " .. tostring message if options.v
 
-error = (message) ->
-  log "fatal", message
-  exit 1
+assert = (statement, message) -> log.fatal message unless statement
 
-assert        = (statement, message) -> error message unless statement
-unimplemented = (what) -> error (tostring what) .. ": Not implemented yet!"
-printUsage    = ->
+unimplemented = (what) -> log.fatal (tostring what) .. ": Not implemented yet!"
+
+printUsage = ->
   write USAGE
   exit 0
 
+-- Check if given string contains something useful
+empty = (str) -> not str or #str < 1
+
 --------------------------------------------------------------------------------
 
-installCMD = () ->
-  if #args < 2
-    error "No package(s) was provided!"
-  else
-    unimplemented "install"
-
-removeCMD = () ->
-  if #args < 2
-    error "No package(s) was provided!"
-  else
-    unimplemented "remove"
-
 -- Parse command line arguments
-parseCLI = (...) ->
+parseArguments = (...) ->
   args, options = parse ...
+  printUsage! if #args < 1
 
-  if #args < 1
-    printUsage!
+-- Return (source, name, version) from "[<source>:]<name>[@<version>]" string
+parsePackageName = (value) ->
+  value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
 
--- Commands implementation
-parsePackageJSON = (json) ->
+-- Check for internet availability
+checkInternet = ->
+  log.fatal "This command requires an internet card to run!" unless isAvailable "internet"
+  request = require("internet").request
+
+-- Download JSON from repository
+downloadPackageJSON = (name) ->
+  log.info "Downloading... "
+  result, response = pcall request HEL_URL .. "packages/" .. name
+  if result
+    log.info "success."
+    return response
+  else
+    log.info "failed."
+    log.fatal "HTTP request failed: " .. tostring(response)
+
+-- Get package data from JSON, and return as a table
+parsePackageJSON = (json, version) ->
   unimplemented "JSON parsing"
 
--- Process given command
+--------------------------------------------------------------------------------
+
+-- Commands implementation
+installPackage = (source, name, version) ->
+  log.fatal "Incorrect package name!" unless name
+  package = if empty source or source == "hel"
+    checkInternet!
+    parsePackageJSON downloadPackageJSON(name), version
+  elseif source == "local"
+    unimplemented "local install"
+  elseif source == "pastebin"
+    unimplemented "pastebin fetching"
+  elseif source == "gist"
+    unimplemented "gist fetching"
+  elseif source == "github"
+    unimplemented "github fetching"
+  elseif source == "direct"
+    unimplemented "direct downloading"
+  else
+    log.fatal "Unknown source format: '#{source}'!"
+  unimplemented "package installation"
+
+removePackage = (source, name, version) ->
+  unimplemented "remove package"
+
+--------------------------------------------------------------------------------
+
+-- Process given command and arguments
 process = ->
   switch args[1]
     when "install"
-      installCMD!
+      log.fatal "No package(s) was provided!" if #args < 2
+      for i = 2, #args do installPackage parsePackageName args[i]
     when "remove"
-      removeCMD!
-    when "help"
-      printUsage!
+      log.fatal "No package(s) was provided!" if #args < 2
+      for i = 2, #args do removePackage parsePackageName args[i]
     else
       printUsage!
 
 --------------------------------------------------------------------------------
-parseCLI ...
+
+-- Run!
+parseArguments ...
 process!
+0
