@@ -1,83 +1,88 @@
 import isAvailable from require "component"
-import request from require "internet"
 import parse from require "shell"
 
 import exit from os
+import write, stderr from io
 
 --------------------------------------------------------------------------------
 
 -- Vatiables
-options = {}
+options, args = {}, {}
 
 -- Constants
 HEL_URL = "http://hel-roottree.rhcloud.com/"
-USAGE = "Usage: hpm [-vqQ] <command> [<package>]
+USAGE   = "Usage: hpm [-vq] <command>
   -q: Quiet mode - no error messages.
+  -v: Verbose mode - many useful logs.
 
 Available commands:
-  install <package>: Downloads package from
-      Hel Repository, and install it into
-      the system.
-  remove <package>: Removes all package
-      files from the system.
+  install <package>...  Download package from Hel Repository, and install it into the system.
+  remove <package>...   Remove all package files from the system.
+  help:                 Show this message
+
+Aviable package formats:
+  [hel:]<name>[@version]  Install package from HEL Package Repository.
 "
 
 --------------------------------------------------------------------------------
 
 -- Logging functions
-log = (message) -> if not options.q then io.write message
-error = (message) -> if not options.q then io.stderr\write message
-assert = (statement, message) -> if not statement
-  if not options.q then error message
-  return
+log = (level, message) ->
+  switch level
+    when "fatal"
+      print "[ )x ] " .. tostring message unless options.q
+    when "error"
+      print "[ ): ] " .. tostring message unless options.q
+    when "info"
+      print "[ (: ] " .. tostring message if options.v
 
--- Check requirements
-checkSystem = ->
-  unless isAvailable "internet"
-    error "This program requires an internet card to run."
-    exit!
+error = (message) ->
+  log "fatal", message
+  exit 1
 
+assert        = (statement, message) -> error message unless statement
+unimplemented = (what) -> error (tostring what) .. ": Not implemented yet!"
+printUsage    = ->
+  write USAGE
+  exit 0
+
+--------------------------------------------------------------------------------
+
+installCMD = () ->
+  if #args < 2
+    error "No package(s) was provided!"
+  else
+    unimplemented "install"
+
+removeCMD = () ->
+  if #args < 2
+    error "No package(s) was provided!"
+  else
+    unimplemented "remove"
 
 -- Parse command line arguments
-parseCLI = ->
+parseCLI = (...) ->
   args, options = parse ...
 
   if #args < 1
-    print USAGE
-    exit!
+    printUsage!
 
 -- Commands implementation
 parsePackageJSON = (json) ->
-  error "JSON parsing: Not implemented yet."
-
-install = (package) ->
-  unless package
-    error "No package name was provided!"
-  else
-    log "Downloading... "
-    result, response = pcall request HEL_URL .. "packages/" .. package
-    if result
-      log "success.\n"
-      parsePackageJSON response
-    else
-      log "failed.\n"
-      error "HTTP request failed: " .. tostring(response) .. "\n"
-
-remove = (package) ->
-  unless package
-    error "No package name was provided!"
-  else
-    error "remove: Not implemented yet."
+  unimplemented "JSON parsing"
 
 -- Process given command
 process = ->
   switch args[1]
     when "install"
-      install args[2]
+      installCMD!
     when "remove"
-      remove args[2]
+      removeCMD!
+    when "help"
+      printUsage!
+    else
+      printUsage!
 
 --------------------------------------------------------------------------------
-checkSystem!
-parseCLI!
+parseCLI ...
 process!
