@@ -6,7 +6,7 @@ import write, stderr from io
 
 --------------------------------------------------------------------------------
 
--- Vatiables
+-- Variables
 options, args = {}, {}
 
 -- Constants
@@ -18,7 +18,7 @@ USAGE   = "Usage: hpm [-vq] <command>
 Available commands:
   install <package>...  Download package from Hel Repository, and install it into the system.
   remove <package>...   Remove all package files from the system.
-  help:                 Show this message
+  help                  Show this message
 
 Aviable package formats:
   [hel:]<name>[@version]  Install package from HEL Package Repository.
