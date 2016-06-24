@@ -23,13 +23,13 @@ Usage: hpm [-vq] <command>
 Available commands:
   install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
   remove <package> [...]    Remove all package[s] files from the system.
-  help                      Show this message
+  help                      Show this message.
   
 Available package formats:
   [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
   local:<path>              Get package from local file system.
   pastebin:<id>             Download source code from given Pastebin page.
-  direct:<url>              Fetch file from <url>
+  direct:<url>              Fetch file from <url>.
 ```
 
 ## Download

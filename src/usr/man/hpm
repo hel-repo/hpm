@@ -1,0 +1,28 @@
+NAME
+  hpm - Hel Repository package manager
+
+SYNOPSIS
+  hpm COMMAND
+
+DESCRIPTION
+  Command-line package manager for OpenOS (OpenComputers). Allows to easily download and install programs from Hel Repository. Alternative app sources are supported: Pastebin, Gist, GitHub, direct links.
+  Also you can define your own way of package dustribution, via custom hpm modules.
+
+  Available commands:
+  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
+  local:<path>              Get package from local file system.
+  pastebin:<id>             Download source code from given Pastebin page.
+  direct:<url>              Fetch file from <url>.
+
+OPTIONS
+  -q
+    Quiet mode - no console output.
+  -v
+    Verbose mode - show additional info.
+
+EXAMPLES
+  hpm install holo@0.70
+    This command will fetch, and then install into system Hologram Editor tool v0.70.
+
+  hpm remove holo
+    All Hologram Editor package files will be removed from system.

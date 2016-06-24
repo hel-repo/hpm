@@ -12,7 +12,7 @@ end
 local options, args = { }, { }
 local request = nil
 local HEL_URL = "http://hel-roottree.rhcloud.com/"
-local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no error messages.\n  -v: Verbose mode - show additional info.\n\nAvailable commands:\n  install <package>...  Download package from Hel Repository, and install it into the system.\n  remove <package>...   Remove all package files from the system.\n  help                  Show this message\n\nAviable package formats:\n  [hel:]<name>[@version]  Install package from HEL Package Repository.\n"
+local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  help                      Show this message.\n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<id>             Download source code from given Pastebin page.\n  direct:<url>              Fetch file from <url>.\n"
 local log = {
   fatal = function(message)
     if not (options.q) then
@@ -97,10 +97,6 @@ installPackage = function(source, name, version)
     package = unimplemented("local install")
   elseif source == "pastebin" then
     package = unimplemented("pastebin fetching")
-  elseif source == "gist" then
-    package = unimplemented("gist fetching")
-  elseif source == "github" then
-    package = unimplemented("github fetching")
   elseif source == "direct" then
     package = unimplemented("direct downloading")
   else

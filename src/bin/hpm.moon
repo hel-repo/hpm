@@ -13,16 +13,19 @@ request = nil
 -- Constants
 HEL_URL = "http://hel-roottree.rhcloud.com/"
 USAGE   = "Usage: hpm [-vq] <command>
-  -q: Quiet mode - no error messages.
+  -q: Quiet mode - no console output.
   -v: Verbose mode - show additional info.
-
+  
 Available commands:
-  install <package>...  Download package from Hel Repository, and install it into the system.
-  remove <package>...   Remove all package files from the system.
-  help                  Show this message
-
-Aviable package formats:
-  [hel:]<name>[@version]  Install package from HEL Package Repository.
+  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
+  remove <package> [...]    Remove all package[s] files from the system.
+  help                      Show this message.
+  
+Available package formats:
+  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
+  local:<path>              Get package from local file system.
+  pastebin:<id>             Download source code from given Pastebin page.
+  direct:<url>              Fetch file from <url>.
 "
 
 --------------------------------------------------------------------------------
@@ -89,10 +92,6 @@ installPackage = (source, name, version) ->
     unimplemented "local install"
   elseif source == "pastebin"
     unimplemented "pastebin fetching"
-  elseif source == "gist"
-    unimplemented "gist fetching"
-  elseif source == "github"
-    unimplemented "github fetching"
   elseif source == "direct"
     unimplemented "direct downloading"
   else
