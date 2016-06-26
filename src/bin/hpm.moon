@@ -4,14 +4,15 @@ import parse from require "shell"
 import exit from os
 import write, stderr from io
 
+
 --------------------------------------------------------------------------------
 
 -- Variables
-options, args = {}, {}
-request = nil
+options, args = {}, {}  -- command-line arguments
+request = nil           -- internet request method (call checkInternet to instantiate)
+modules = {}            -- distribution modules
 
 -- Constants
-HEL_URL = "http://hel-roottree.rhcloud.com/"
 USAGE   = "Usage: hpm [-vq] <command>
   -q: Quiet mode - no console output.
   -v: Verbose mode - show additional info.
@@ -28,14 +29,14 @@ Available package formats:
   direct:<url>              Fetch file from <url>.
 "
 
---------------------------------------------------------------------------------
 
--- Logging functions
+-- Logging functions -----------------------------------------------------------
+
 log =
   fatal: (message) -> 
     stderr\write "[ x( ] " .. tostring message unless options.q
-    exit 1,
-  error: (message) -> stderr\write "[ :( ] " .. tostring message unless options.q,
+    exit 1
+  error: (message) -> stderr\write "[ :( ] " .. tostring message unless options.q
   info: (message) -> print "[ :) ] " .. tostring message if options.v
 
 assert = (statement, message) -> log.fatal message unless statement
@@ -46,17 +47,13 @@ printUsage = ->
   write USAGE
   exit 0
 
+
+-- Helper methods --------------------------------------------------------------
+
 -- Check if given string contains something useful
 empty = (str) -> not str or #str < 1
 
---------------------------------------------------------------------------------
-
--- Parse command line arguments
-parseArguments = (...) ->
-  args, options = parse ...
-  printUsage! if #args < 1
-
--- Return (source, name, version) from "[<source>:]<name>[@<version>]" string
+-- Return (source, name, meta) from "[<source>:]<name>[@<meta>]" string
 parsePackageName = (value) ->
   value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
 
@@ -65,43 +62,93 @@ checkInternet = ->
   log.fatal "This command requires an internet card to run!" unless isAvailable "internet"
   request = require("internet").request
 
--- Download JSON from repository
-downloadPackageJSON = (name) ->
-  log.info "Downloading... "
-  result, response = pcall request HEL_URL .. "packages/" .. name
-  if result
-    log.info "success."
-    return response
-  else
-    log.info "failed."
-    log.fatal "HTTP request failed: " .. tostring(response)
+-- Try to find module corresponding to source string
+-- TODO: implement custom modules loading
+getModuleBy = (source) ->
+  switch source
+    when "" then modules.hel
+    when "hel" then modules.hel
+    else modules.default
 
--- Get package data from JSON, and return as a table
-parsePackageJSON = (json, version) ->
-  unimplemented "JSON parsing"
+-- Call module operation (with fallback to default module)
+callModuleMethod = (mod, name, ...) ->
+  mod = mod or modules.default
+  if mod[name] then mod[name](mod, ...)
+  else modules.default[name](modules.default, ...)
 
---------------------------------------------------------------------------------
 
--- Commands implementation
-installPackage = (source, name, version) ->
-  log.fatal "Incorrect package name!" unless name
-  package = if empty source or source == "hel"
+-- Distribution modules --------------------------------------------------------
+--
+-- Each module must provide several methods:
+-- Required:
+--   install(self, name, meta)    -- install files from given package data
+--                                -- must return 'package manifest'
+--                                -- (installed package description table)
+-- Optional:
+--   remove(self, manifest)       -- remove files
+--   upgrade(self, m_from, m_to)  -- replace one package version with another
+--
+-- Omitted methods will be replaced with default implementations
+
+-- Default module
+modules.default = {
+  install: -> log.fatal "Incorrect source was provided! No default 'install' implementation."
+  remove: -> unimplemented "default removal"
+  upgrade: -> unimplemented "default upgrade"
+}
+
+-- Hel Repository module
+modules.hel = {
+  -- Repository API root url
+  URL: "http://hel-roottree.rhcloud.com/"
+
+  -- Download JSON from repository
+  downloadPackageJSON: (self, name) ->
+    log.info "Downloading... "
+    result, response = pcall request @URL .. "packages/" .. name
+    if result
+      log.info "success."
+      return response
+    else
+      log.info "failed."
+      log.fatal "HTTP request failed: " .. tostring(response)
+
+  -- Get package data from JSON, and return as a table
+  parsePackageJSON: (self, json, version) ->
+    unimplemented "JSON parsing"
+
+  -- Get package from repository, parse, and install
+  install: (self, name, version) ->
     checkInternet!
-    parsePackageJSON downloadPackageJSON(name), version
-  elseif source == "local"
-    unimplemented "local install"
-  elseif source == "pastebin"
-    unimplemented "pastebin fetching"
-  elseif source == "direct"
-    unimplemented "direct downloading"
-  else
-    log.fatal "Unknown source format: '#{source}'!"
-  unimplemented "package installation"
+    json = @downloadPackageJSON name
+    log.info "JSON data was downloaded: " .. json
+    data = @parsePackageJSON json, version
+    unimplemented "installation from hel"
+}
 
-removePackage = (source, name, version) ->
-  unimplemented "remove package"
+-- Local-install module
+modules.local = {
 
---------------------------------------------------------------------------------
+}
+
+
+-- Commands implementation -----------------------------------------------------
+
+installPackage = (source, name, meta) ->
+  log.fatal "Incorrect package name!" unless name
+  callModuleMethod getModuleBy(source), "install", name, meta
+
+removePackage = (source, name, meta) ->
+  log.fatal "Incorrect package name!" unless name
+  unimplemented "package removal"
+
+
+-- App working -----------------------------------------------------------------
+
+-- Parse command line arguments
+parseArguments = (...) ->
+  args, options = parse ...
+  printUsage! if #args < 1
 
 -- Process given command and arguments
 process = ->
@@ -114,8 +161,6 @@ process = ->
       for i = 2, #args do removePackage parsePackageName args[i]
     else
       printUsage!
-
---------------------------------------------------------------------------------
 
 -- Run!
 parseArguments ...

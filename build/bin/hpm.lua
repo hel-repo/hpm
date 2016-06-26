@@ -11,7 +11,7 @@ do
 end
 local options, args = { }, { }
 local request = nil
-local HEL_URL = "http://hel-roottree.rhcloud.com/"
+local modules = { }
 local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  help                      Show this message.\n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<id>             Download source code from given Pastebin page.\n  direct:<url>              Fetch file from <url>.\n"
 local log = {
   fatal = function(message)
@@ -50,13 +50,6 @@ local empty
 empty = function(str)
   return not str or #str < 1
 end
-local parseArguments
-parseArguments = function(...)
-  args, options = parse(...)
-  if #args < 1 then
-    return printUsage()
-  end
-end
 local parsePackageName
 parsePackageName = function(value)
   return value:match("^([^:]-):?([^:@]+)@?([^:@]*)$")
@@ -68,45 +61,82 @@ checkInternet = function()
   end
   request = require("internet").request
 end
-local downloadPackageJSON
-downloadPackageJSON = function(name)
-  log.info("Downloading... ")
-  local result, response = pcall(request(HEL_URL .. "packages/" .. name))
-  if result then
-    log.info("success.")
-    return response
+local getModuleBy
+getModuleBy = function(source)
+  local _exp_0 = source
+  if "" == _exp_0 then
+    return modules.hel
+  elseif "hel" == _exp_0 then
+    return modules.hel
   else
-    log.info("failed.")
-    return log.fatal("HTTP request failed: " .. tostring(response))
+    return modules.default
   end
 end
-local parsePackageJSON
-parsePackageJSON = function(json, version)
-  return unimplemented("JSON parsing")
+local callModuleMethod
+callModuleMethod = function(mod, name, ...)
+  mod = mod or modules.default
+  if mod[name] then
+    return mod[name](mod, ...)
+  else
+    return modules.default[name](modules.default, ...)
+  end
 end
+modules.default = {
+  install = function()
+    return log.fatal("Incorrect source was provided! No default 'install' implementation.")
+  end,
+  remove = function()
+    return unimplemented("default removal")
+  end,
+  upgrade = function()
+    return unimplemented("default upgrade")
+  end
+}
+modules.hel = {
+  URL = "http://hel-roottree.rhcloud.com/",
+  downloadPackageJSON = function(self, name)
+    log.info("Downloading... ")
+    local result, response = pcall(request(self.URL .. "packages/" .. name))
+    if result then
+      log.info("success.")
+      return response
+    else
+      log.info("failed.")
+      return log.fatal("HTTP request failed: " .. tostring(response))
+    end
+  end,
+  parsePackageJSON = function(self, json, version)
+    return unimplemented("JSON parsing")
+  end,
+  install = function(self, name, version)
+    checkInternet()
+    local json = self:downloadPackageJSON(name)
+    log.info("JSON data was downloaded: " .. json)
+    local data = self:parsePackageJSON(json, version)
+    return unimplemented("installation from hel")
+  end
+}
+modules["local"] = { }
 local installPackage
-installPackage = function(source, name, version)
+installPackage = function(source, name, meta)
   if not (name) then
     log.fatal("Incorrect package name!")
   end
-  local package
-  if empty(source or source == "hel") then
-    checkInternet()
-    package = parsePackageJSON(downloadPackageJSON(name), version)
-  elseif source == "local" then
-    package = unimplemented("local install")
-  elseif source == "pastebin" then
-    package = unimplemented("pastebin fetching")
-  elseif source == "direct" then
-    package = unimplemented("direct downloading")
-  else
-    package = log.fatal("Unknown source format: '" .. tostring(source) .. "'!")
-  end
-  return unimplemented("package installation")
+  return callModuleMethod(getModuleBy(source), "install", name, meta)
 end
 local removePackage
-removePackage = function(source, name, version)
-  return unimplemented("remove package")
+removePackage = function(source, name, meta)
+  if not (name) then
+    log.fatal("Incorrect package name!")
+  end
+  return unimplemented("package removal")
+end
+local parseArguments
+parseArguments = function(...)
+  args, options = parse(...)
+  if #args < 1 then
+    return printUsage()
+  end
 end
 local process
 process = function()
