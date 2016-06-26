@@ -1,11 +1,11 @@
 import isAvailable from require "component"
 import parse from require "shell"
+import exists, makeDirectory, concat from require "filesystem"
 
 import exit from os
 import write, stderr from io
+import insert from table
 
-
---------------------------------------------------------------------------------
 
 -- Variables
 options, args = {}, {}  -- command-line arguments
@@ -13,7 +13,7 @@ request = nil           -- internet request method (call checkInternet to instan
 modules = {}            -- distribution modules
 
 -- Constants
-USAGE   = "Usage: hpm [-vq] <command>
+USAGE = "Usage: hpm [-vq] <command>
   -q: Quiet mode - no console output.
   -v: Verbose mode - show additional info.
   
@@ -26,8 +26,7 @@ Available package formats:
   [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
   local:<path>              Get package from local file system.
   pastebin:<id>             Download source code from given Pastebin page.
-  direct:<url>              Fetch file from <url>.
-"
+  direct:<url>              Fetch file from <url>."
 
 
 -- Logging functions -----------------------------------------------------------
@@ -60,9 +59,14 @@ parsePackageName = (value) ->
 -- Check for internet availability
 checkInternet = ->
   log.fatal "This command requires an internet card to run!" unless isAvailable "internet"
-  request = require("internet").request
+  request = request or require("internet").request
 
--- Try to find module corresponding to source string
+-- Download something
+download = (url) ->
+  checkInternet!
+  pcall request, url
+
+-- Try to find module corresponding to the 'source' string
 -- TODO: implement custom modules loading
 getModuleBy = (source) ->
   switch source
@@ -87,6 +91,7 @@ callModuleMethod = (mod, name, ...) ->
 -- Optional:
 --   remove(self, manifest)       -- remove files
 --   upgrade(self, m_from, m_to)  -- replace one package version with another
+--   save(self, name, meta)       -- download package without installation
 --
 -- Omitted methods will be replaced with default implementations
 
@@ -102,28 +107,65 @@ modules.hel = {
   -- Repository API root url
   URL: "http://hel-roottree.rhcloud.com/"
 
-  -- Download JSON from repository
-  downloadPackageJSON: (self, name) ->
-    log.info "Downloading... "
-    result, response = pcall request @URL .. "packages/" .. name
-    if result
-      log.info "success."
-      return response
-    else
-      log.info "failed."
-      log.fatal "HTTP request failed: " .. tostring(response)
-
   -- Get package data from JSON, and return as a table
-  parsePackageJSON: (self, json, version) ->
-    unimplemented "JSON parsing"
+  parsePackageJSON: (self, json, versionNumber) ->
+    selectedVersion, selectedNumber = nil, nil
+    versions = json\match '"versions":%s*(%b[])'
+
+    for version in versions\gmatch("%b{}") do
+      number = version\match '"number":%s*"(.-)"'
+      if number == versionNumber then
+        selectedVersion, selectedNumber = version, number
+        break
+      elseif selectedVersion == nil or selectedNumber < number
+        selectedVersion, selectedNumber = version, number
+
+    log.fatal "Incorrect JSON format!\n" .. json unless selectedVersion
+
+    data = { version: selectedVersion, files: {} }
+    files = selectedVersion\match '"files":%s*(%b[])'
+
+    for file in files\gmatch("%b{}") do
+      url = file\match '"url":%s*"(.-)"'
+      dir = file\match '"dir":%s*"(.-)"'
+      name = file\match '"name":%s*"(.-)"'
+      insert data.files, { :url, :dir, :name }
+
+    data
+
 
   -- Get package from repository, parse, and install
   install: (self, name, version) ->
-    checkInternet!
-    json = @downloadPackageJSON name
-    log.info "JSON data was downloaded: " .. json
+    log.info "Downloading package data ..."
+    status, response = download @URL .. "packages/" .. name
+    log.fatal "HTTP request error: " .. response unless status
+
+    json = ""
+    for chunk in response do json ..= chunk
+
     data = @parsePackageJSON json, version
-    unimplemented "installation from hel"
+
+    for key, file in pairs(data.files) do
+      f = nil
+      result, response = download file.url
+      if result
+        log.info "Fetching '#{file.name}' ..."
+
+        if not exists file.dir
+          result, response = makeDirectory file.dir
+          log.fatal "Failed creating '#{file.path}' directory for '#{file.name}'! \n#{response}" unless result
+
+        result, reason = pcall ->
+          for chunk in response do
+            if not f then
+              f, reason = io.open concat(file.dir, file.name), "wb"
+              assert f, "Failed opening file for writing: " .. tostring(reason)
+            f\write(chunk)
+
+      if f then f\close!
+      log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{response}" unless result
+
+      log.info "Done."
 }
 
 -- Local-install module

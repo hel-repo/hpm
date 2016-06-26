@@ -2,6 +2,11 @@ local isAvailable
 isAvailable = require("component").isAvailable
 local parse
 parse = require("shell").parse
+local exists, makeDirectory, concat
+do
+  local _obj_0 = require("filesystem")
+  exists, makeDirectory, concat = _obj_0.exists, _obj_0.makeDirectory, _obj_0.concat
+end
 local exit
 exit = os.exit
 local write, stderr
@@ -9,10 +14,12 @@ do
   local _obj_0 = io
   write, stderr = _obj_0.write, _obj_0.stderr
 end
+local insert
+insert = table.insert
 local options, args = { }, { }
 local request = nil
 local modules = { }
-local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  help                      Show this message.\n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<id>             Download source code from given Pastebin page.\n  direct:<url>              Fetch file from <url>.\n"
+local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  help                      Show this message.\n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<id>             Download source code from given Pastebin page.\n  direct:<url>              Fetch file from <url>."
 local log = {
   fatal = function(message)
     if not (options.q) then
@@ -59,7 +66,12 @@ checkInternet = function()
   if not (isAvailable("internet")) then
     log.fatal("This command requires an internet card to run!")
   end
-  request = require("internet").request
+  request = request or require("internet").request
+end
+local download
+download = function(url)
+  checkInternet()
+  return pcall(request, url)
 end
 local getModuleBy
 getModuleBy = function(source)
@@ -94,26 +106,80 @@ modules.default = {
 }
 modules.hel = {
   URL = "http://hel-roottree.rhcloud.com/",
-  downloadPackageJSON = function(self, name)
-    log.info("Downloading... ")
-    local result, response = pcall(request(self.URL .. "packages/" .. name))
-    if result then
-      log.info("success.")
-      return response
-    else
-      log.info("failed.")
-      return log.fatal("HTTP request failed: " .. tostring(response))
+  parsePackageJSON = function(self, json, versionNumber)
+    local selectedVersion, selectedNumber = nil, nil
+    local versions = json:match('"versions":%s*(%b[])')
+    for version in versions:gmatch("%b{}") do
+      local number = version:match('"number":%s*"(.-)"')
+      if number == versionNumber then
+        selectedVersion, selectedNumber = version, number
+        break
+      elseif selectedVersion == nil or selectedNumber < number then
+        selectedVersion, selectedNumber = version, number
+      end
     end
-  end,
-  parsePackageJSON = function(self, json, version)
-    return unimplemented("JSON parsing")
+    if not (selectedVersion) then
+      log.fatal("Incorrect JSON format!\n" .. json)
+    end
+    local data = {
+      version = selectedVersion,
+      files = { }
+    }
+    local files = selectedVersion:match('"files":%s*(%b[])')
+    for file in files:gmatch("%b{}") do
+      local url = file:match('"url":%s*"(.-)"')
+      local dir = file:match('"dir":%s*"(.-)"')
+      local name = file:match('"name":%s*"(.-)"')
+      insert(data.files, {
+        url = url,
+        dir = dir,
+        name = name
+      })
+    end
+    return data
   end,
   install = function(self, name, version)
-    checkInternet()
-    local json = self:downloadPackageJSON(name)
-    log.info("JSON data was downloaded: " .. json)
+    log.info("Downloading package data ...")
+    local status, response = download(self.URL .. "packages/" .. name)
+    if not (status) then
+      log.fatal("HTTP request error: " .. response)
+    end
+    local json = ""
+    for chunk in response do
+      json = json .. chunk
+    end
     local data = self:parsePackageJSON(json, version)
-    return unimplemented("installation from hel")
+    for key, file in pairs(data.files) do
+      local f = nil
+      local result
+      result, response = download(file.url)
+      if result then
+        log.info("Fetching '" .. tostring(file.name) .. "' ...")
+        if not exists(file.dir) then
+          result, response = makeDirectory(file.dir)
+          if not (result) then
+            log.fatal("Failed creating '" .. tostring(file.path) .. "' directory for '" .. tostring(file.name) .. "'! \n" .. tostring(response))
+          end
+        end
+        local reason
+        result, reason = pcall(function()
+          for chunk in response do
+            if not f then
+              f, reason = io.open(concat(file.dir, file.name), "wb")
+              assert(f, "Failed opening file for writing: " .. tostring(reason))
+            end
+            f:write(chunk)
+          end
+        end)
+      end
+      if f then
+        f:close()
+      end
+      if not (result) then
+        log.fatal("Failed to download '" .. tostring(file.name) .. "' from '" .. tostring(file.url) .. "'! \n" .. tostring(response))
+      end
+      log.info("Done.")
+    end
   end
 }
 modules["local"] = { }
