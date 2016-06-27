@@ -1,6 +1,7 @@
 import isAvailable from require "component"
 import parse from require "shell"
 import exists, makeDirectory, concat from require "filesystem"
+import serialize from require "serialization"
 
 import exit from os
 import write, stderr from io
@@ -13,6 +14,7 @@ request = nil           -- internet request method (call checkInternet to instan
 modules = {}            -- distribution modules
 
 -- Constants
+DIST_PATH = "/etc/hpm"  -- there will be stored manifests of installed packages
 USAGE = "Usage: hpm [-vq] <command>
   -q: Quiet mode - no console output.
   -v: Verbose mode - show additional info.
@@ -20,23 +22,25 @@ USAGE = "Usage: hpm [-vq] <command>
 Available commands:
   install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
   remove <package> [...]    Remove all package[s] files from the system.
-  help                      Show this message.
+  save <package> [...]      Download package[s] without installation.
+  help                      Show this message. 
   
 Available package formats:
   [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
   local:<path>              Get package from local file system.
-  pastebin:<id>             Download source code from given Pastebin page.
-  direct:<url>              Fetch file from <url>."
+  pastebin:<name>@<id>      Download source code from given Pastebin page.
+  direct:<name>@<url>       Fetch file from <url>."
 
 
 -- Logging functions -----------------------------------------------------------
 
 log =
+  info: (message) -> print message if options.v
+  print: (message) -> print message unless options.q
+  error: (message) -> stderr\write message unless options.q
   fatal: (message) -> 
-    stderr\write "[ x( ] " .. tostring message unless options.q
+    stderr\write message unless options.q
     exit 1
-  error: (message) -> stderr\write "[ :( ] " .. tostring message unless options.q
-  info: (message) -> print "[ :) ] " .. tostring message if options.v
 
 assert = (statement, message) -> log.fatal message unless statement
 
@@ -80,6 +84,18 @@ callModuleMethod = (mod, name, ...) ->
   if mod[name] then mod[name](mod, ...)
   else modules.default[name](modules.default, ...)
 
+-- Save manifest to dist-data folder
+saveManifest = (manifest) ->
+  if not exists DIST_PATH
+    result, response = makeDirectory DIST_PATH
+    log.fatal "Failed creating '#{DIST_PATH}' directory for manifest files!\n#{response}" unless result
+
+  f, reason = io.open concat(DIST_PATH, manifest.name), "w"
+  log.fatal "Failed opening file for writing:\n#{reason}" unless f
+  
+  f\write serialize manifest
+
+  f\close!
 
 -- Distribution modules --------------------------------------------------------
 --
@@ -122,7 +138,7 @@ modules.hel = {
 
     log.fatal "Incorrect JSON format!\n" .. json unless selectedVersion
 
-    data = { version: selectedVersion, files: {} }
+    data = { version: selectedNumber, files: {} }
     files = selectedVersion\match '"files":%s*(%b[])'
 
     for file in files\gmatch("%b{}") do
@@ -134,9 +150,9 @@ modules.hel = {
     data
 
 
-  -- Get package from repository, parse, and install
+  -- Get package from repository, then parse, and install
   install: (self, name, version) ->
-    log.info "Downloading package data ..."
+    log.print "Downloading package data ..."
     status, response = download @URL .. "packages/" .. name
     log.fatal "HTTP request error: " .. response unless status
 
@@ -149,7 +165,7 @@ modules.hel = {
       f = nil
       result, response = download file.url
       if result
-        log.info "Fetching '#{file.name}' ..."
+        log.print "Fetching '#{file.name}' ..."
 
         if not exists file.dir
           result, response = makeDirectory file.dir
@@ -165,7 +181,10 @@ modules.hel = {
       if f then f\close!
       log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{response}" unless result
 
-      log.info "Done."
+      log.print "Done."
+
+    data.name = name
+    data
 }
 
 -- Local-install module
@@ -178,7 +197,8 @@ modules.local = {
 
 installPackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
-  callModuleMethod getModuleBy(source), "install", name, meta
+  saveManifest callModuleMethod getModuleBy(source), "install", name, meta
+  log.info "Manifest for '#{name}' package was saved."
 
 removePackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name

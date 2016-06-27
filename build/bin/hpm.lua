@@ -7,6 +7,8 @@ do
   local _obj_0 = require("filesystem")
   exists, makeDirectory, concat = _obj_0.exists, _obj_0.makeDirectory, _obj_0.concat
 end
+local serialize
+serialize = require("serialization").serialize
 local exit
 exit = os.exit
 local write, stderr
@@ -19,23 +21,29 @@ insert = table.insert
 local options, args = { }, { }
 local request = nil
 local modules = { }
-local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  help                      Show this message.\n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<id>             Download source code from given Pastebin page.\n  direct:<url>              Fetch file from <url>."
+local DIST_PATH = "/etc/hpm"
+local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  save <package> [...]      Download package[s] without installation.\n  help                      Show this message. \n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<name>@<id>      Download source code from given Pastebin page.\n  direct:<name>@<url>       Fetch file from <url>."
 local log = {
-  fatal = function(message)
-    if not (options.q) then
-      stderr:write("[ x( ] " .. tostring(message))
+  info = function(message)
+    if options.v then
+      return print(message)
     end
-    return exit(1)
+  end,
+  print = function(message)
+    if not (options.q) then
+      return print(message)
+    end
   end,
   error = function(message)
     if not (options.q) then
-      return stderr:write("[ :( ] " .. tostring(message))
+      return stderr:write(message)
     end
   end,
-  info = function(message)
-    if options.v then
-      return print("[ :) ] " .. tostring(message))
+  fatal = function(message)
+    if not (options.q) then
+      stderr:write(message)
     end
+    return exit(1)
   end
 }
 local assert
@@ -93,6 +101,21 @@ callModuleMethod = function(mod, name, ...)
     return modules.default[name](modules.default, ...)
   end
 end
+local saveManifest
+saveManifest = function(manifest)
+  if not exists(DIST_PATH) then
+    local result, response = makeDirectory(DIST_PATH)
+    if not (result) then
+      log.fatal("Failed creating '" .. tostring(DIST_PATH) .. "' directory for manifest files!\n" .. tostring(response))
+    end
+  end
+  local f, reason = io.open(concat(DIST_PATH, manifest.name), "w")
+  if not (f) then
+    log.fatal("Failed opening file for writing:\n" .. tostring(reason))
+  end
+  f:write(serialize(manifest))
+  return f:close()
+end
 modules.default = {
   install = function()
     return log.fatal("Incorrect source was provided! No default 'install' implementation.")
@@ -122,7 +145,7 @@ modules.hel = {
       log.fatal("Incorrect JSON format!\n" .. json)
     end
     local data = {
-      version = selectedVersion,
+      version = selectedNumber,
       files = { }
     }
     local files = selectedVersion:match('"files":%s*(%b[])')
@@ -139,7 +162,7 @@ modules.hel = {
     return data
   end,
   install = function(self, name, version)
-    log.info("Downloading package data ...")
+    log.print("Downloading package data ...")
     local status, response = download(self.URL .. "packages/" .. name)
     if not (status) then
       log.fatal("HTTP request error: " .. response)
@@ -154,7 +177,7 @@ modules.hel = {
       local result
       result, response = download(file.url)
       if result then
-        log.info("Fetching '" .. tostring(file.name) .. "' ...")
+        log.print("Fetching '" .. tostring(file.name) .. "' ...")
         if not exists(file.dir) then
           result, response = makeDirectory(file.dir)
           if not (result) then
@@ -178,8 +201,10 @@ modules.hel = {
       if not (result) then
         log.fatal("Failed to download '" .. tostring(file.name) .. "' from '" .. tostring(file.url) .. "'! \n" .. tostring(response))
       end
-      log.info("Done.")
+      log.print("Done.")
     end
+    data.name = name
+    return data
   end
 }
 modules["local"] = { }
@@ -188,7 +213,8 @@ installPackage = function(source, name, meta)
   if not (name) then
     log.fatal("Incorrect package name!")
   end
-  return callModuleMethod(getModuleBy(source), "install", name, meta)
+  saveManifest(callModuleMethod(getModuleBy(source), "install", name, meta))
+  return log.info("Manifest for '" .. tostring(name) .. "' package was saved.")
 end
 local removePackage
 removePackage = function(source, name, meta)
