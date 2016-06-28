@@ -1,7 +1,7 @@
 import isAvailable from require "component"
 import parse from require "shell"
-import exists, makeDirectory, concat from require "filesystem"
-import serialize from require "serialization"
+import exists, makeDirectory, concat, remove from require "filesystem"
+import serialize, unserialize from require "serialization"
 
 import exit from os
 import write, stderr from io
@@ -37,9 +37,9 @@ Available package formats:
 log =
   info: (message) -> print message if options.v
   print: (message) -> print message unless options.q
-  error: (message) -> stderr\write message unless options.q
+  error: (message) -> stderr\write message .. '\n' unless options.q
   fatal: (message) -> 
-    stderr\write message unless options.q
+    stderr\write message .. '\n' unless options.q
     exit 1
 
 assert = (statement, message) -> log.fatal message unless statement
@@ -49,6 +49,10 @@ unimplemented = (what) -> log.fatal (tostring what) .. ": Not implemented yet!"
 printUsage = ->
   write USAGE
   exit 0
+
+try = (result, reason) ->
+  log.fatal reason unless result
+  result
 
 
 -- Helper methods --------------------------------------------------------------
@@ -87,15 +91,36 @@ callModuleMethod = (mod, name, ...) ->
 -- Save manifest to dist-data folder
 saveManifest = (manifest) ->
   if not exists DIST_PATH
-    result, response = makeDirectory DIST_PATH
-    log.fatal "Failed creating '#{DIST_PATH}' directory for manifest files!\n#{response}" unless result
+    result, reason = makeDirectory DIST_PATH
+    if not result
+      return false, "Failed creating '#{DIST_PATH}' directory for manifest files: #{reason}"
 
-  f, reason = io.open concat(DIST_PATH, manifest.name), "w"
-  log.fatal "Failed opening file for writing:\n#{reason}" unless f
-  
-  f\write serialize manifest
+  file, reason = io.open concat(DIST_PATH, manifest.name), "w"
+  if file
+    file\write serialize manifest
+    file\close!
+    true
+  else
+    false, "Failed opening file for writing: #{reason}"
 
-  f\close!
+-- Read package manifest from file
+loadManifest = (name) ->
+  path = concat DIST_PATH, name
+  if exists path
+    file, reason = io.open path, "rb"
+    if file
+      manifest = unserialize file\read "*all"
+      file\close!
+      manifest
+    else false, "Failed to open manifest for '#{name }' package: #{reason}"
+  else false, "No manifest found for '#{name}' package"
+
+-- Delete manifest file
+removeManifest = (name) ->
+  path = concat DIST_PATH, name
+  if exists path then remove path
+  else false, "No manifest found for '#{name}' package"
+
 
 -- Distribution modules --------------------------------------------------------
 --
@@ -114,7 +139,18 @@ saveManifest = (manifest) ->
 -- Default module
 modules.default = {
   install: -> log.fatal "Incorrect source was provided! No default 'install' implementation."
-  remove: -> unimplemented "default removal"
+  
+  remove: (self, manifest) -> 
+    if manifest
+      if manifest.files
+        for i, file in pairs(manifest.files)
+          path = concat file.dir, file.name
+          result, reason = remove path
+          return false, "Failed removing '#{path}' file: #{reason}" unless result
+      removeManifest manifest.name
+    else
+      false, "Package cannot be removed: empty manifest."
+  
   upgrade: -> unimplemented "default upgrade"
 }
 
@@ -197,12 +233,16 @@ modules.local = {
 
 installPackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
-  saveManifest callModuleMethod getModuleBy(source), "install", name, meta
-  log.info "Manifest for '#{name}' package was saved."
+  if saveManifest callModuleMethod getModuleBy(source), "install", name, meta
+    log.info "Manifest for '#{name}' package was saved."
+  else
+    log.error "Error saving manifest for '#{name}' package."
 
 removePackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
-  unimplemented "package removal"
+  manifest = try loadManifest name
+  try callModuleMethod getModuleBy(source), "remove", manifest
+  log.print "Done removal."
 
 
 -- App working -----------------------------------------------------------------

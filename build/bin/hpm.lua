@@ -2,13 +2,16 @@ local isAvailable
 isAvailable = require("component").isAvailable
 local parse
 parse = require("shell").parse
-local exists, makeDirectory, concat
+local exists, makeDirectory, concat, remove
 do
   local _obj_0 = require("filesystem")
-  exists, makeDirectory, concat = _obj_0.exists, _obj_0.makeDirectory, _obj_0.concat
+  exists, makeDirectory, concat, remove = _obj_0.exists, _obj_0.makeDirectory, _obj_0.concat, _obj_0.remove
 end
-local serialize
-serialize = require("serialization").serialize
+local serialize, unserialize
+do
+  local _obj_0 = require("serialization")
+  serialize, unserialize = _obj_0.serialize, _obj_0.unserialize
+end
 local exit
 exit = os.exit
 local write, stderr
@@ -36,12 +39,12 @@ local log = {
   end,
   error = function(message)
     if not (options.q) then
-      return stderr:write(message)
+      return stderr:write(message .. '\n')
     end
   end,
   fatal = function(message)
     if not (options.q) then
-      stderr:write(message)
+      stderr:write(message .. '\n')
     end
     return exit(1)
   end
@@ -60,6 +63,13 @@ local printUsage
 printUsage = function()
   write(USAGE)
   return exit(0)
+end
+local try
+try = function(result, reason)
+  if not (result) then
+    log.fatal(reason)
+  end
+  return result
 end
 local empty
 empty = function(str)
@@ -104,24 +114,64 @@ end
 local saveManifest
 saveManifest = function(manifest)
   if not exists(DIST_PATH) then
-    local result, response = makeDirectory(DIST_PATH)
-    if not (result) then
-      log.fatal("Failed creating '" .. tostring(DIST_PATH) .. "' directory for manifest files!\n" .. tostring(response))
+    local result, reason = makeDirectory(DIST_PATH)
+    if not result then
+      return false, "Failed creating '" .. tostring(DIST_PATH) .. "' directory for manifest files: " .. tostring(reason)
     end
   end
-  local f, reason = io.open(concat(DIST_PATH, manifest.name), "w")
-  if not (f) then
-    log.fatal("Failed opening file for writing:\n" .. tostring(reason))
+  local file, reason = io.open(concat(DIST_PATH, manifest.name), "w")
+  if file then
+    file:write(serialize(manifest))
+    file:close()
+    return true
+  else
+    return false, "Failed opening file for writing: " .. tostring(reason)
   end
-  f:write(serialize(manifest))
-  return f:close()
+end
+local loadManifest
+loadManifest = function(name)
+  local path = concat(DIST_PATH, name)
+  if exists(path) then
+    local file, reason = io.open(path, "rb")
+    if file then
+      local manifest = unserialize(file:read("*all"))
+      file:close()
+      return manifest
+    else
+      return false, "Failed to open manifest for '" .. tostring(name) .. "' package: " .. tostring(reason)
+    end
+  else
+    return false, "No manifest found for '" .. tostring(name) .. "' package"
+  end
+end
+local removeManifest
+removeManifest = function(name)
+  local path = concat(DIST_PATH, name)
+  if exists(path) then
+    return remove(path)
+  else
+    return false, "No manifest found for '" .. tostring(name) .. "' package"
+  end
 end
 modules.default = {
   install = function()
     return log.fatal("Incorrect source was provided! No default 'install' implementation.")
   end,
-  remove = function()
-    return unimplemented("default removal")
+  remove = function(self, manifest)
+    if manifest then
+      if manifest.files then
+        for i, file in pairs(manifest.files) do
+          local path = concat(file.dir, file.name)
+          local result, reason = remove(path)
+          if not (result) then
+            return false, "Failed removing '" .. tostring(path) .. "' file: " .. tostring(reason)
+          end
+        end
+      end
+      return removeManifest(manifest.name)
+    else
+      return false, "Package cannot be removed: empty manifest."
+    end
   end,
   upgrade = function()
     return unimplemented("default upgrade")
@@ -213,15 +263,20 @@ installPackage = function(source, name, meta)
   if not (name) then
     log.fatal("Incorrect package name!")
   end
-  saveManifest(callModuleMethod(getModuleBy(source), "install", name, meta))
-  return log.info("Manifest for '" .. tostring(name) .. "' package was saved.")
+  if saveManifest(callModuleMethod(getModuleBy(source), "install", name, meta)) then
+    return log.info("Manifest for '" .. tostring(name) .. "' package was saved.")
+  else
+    return log.error("Error saving manifest for '" .. tostring(name) .. "' package.")
+  end
 end
 local removePackage
 removePackage = function(source, name, meta)
   if not (name) then
     log.fatal("Incorrect package name!")
   end
-  return unimplemented("package removal")
+  local manifest = try(loadManifest(name))
+  try(callModuleMethod(getModuleBy(source), "remove", manifest))
+  return log.print("Done removal.")
 end
 local parseArguments
 parseArguments = function(...)
