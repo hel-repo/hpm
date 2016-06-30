@@ -1,6 +1,6 @@
 import isAvailable from require "component"
 import parse from require "shell"
-import exists, makeDirectory, concat, remove from require "filesystem"
+import exists, makeDirectory, concat, remove, copy from require "filesystem"
 import serialize, unserialize from require "serialization"
 
 import exit from os
@@ -104,8 +104,8 @@ saveManifest = (manifest) ->
     false, "Failed opening file for writing: #{reason}"
 
 -- Read package manifest from file
-loadManifest = (name) ->
-  path = concat DIST_PATH, name
+loadManifest = (name, path) ->
+  path = path or concat DIST_PATH, name
   if exists path
     file, reason = io.open path, "rb"
     if file
@@ -225,7 +225,15 @@ modules.hel = {
 
 -- Local-install module
 modules.local = {
-
+  install: (self, path, version) ->
+    -- try to load data from local directory-package
+    manifest = loadManifest path, concat path, "manifest"
+    -- copy files to corresponding positions
+    for key, file in pairs(manifest.files) do
+      result, reason = copy concat(path, file.name), concat(file.dir, file.name)
+      log.error "Cannot copy '#{file.name}' file: #{reason}" unless result
+    
+    manifest
 }
 
 
