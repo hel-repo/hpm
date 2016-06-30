@@ -2,10 +2,10 @@ local isAvailable
 isAvailable = require("component").isAvailable
 local parse
 parse = require("shell").parse
-local exists, makeDirectory, concat, remove
+local exists, makeDirectory, concat, remove, copy, list
 do
   local _obj_0 = require("filesystem")
-  exists, makeDirectory, concat, remove = _obj_0.exists, _obj_0.makeDirectory, _obj_0.concat, _obj_0.remove
+  exists, makeDirectory, concat, remove, copy, list = _obj_0.exists, _obj_0.makeDirectory, _obj_0.concat, _obj_0.remove, _obj_0.copy, _obj_0.list
 end
 local serialize, unserialize
 do
@@ -21,11 +21,12 @@ do
 end
 local insert
 insert = table.insert
+local listFiles = list
 local options, args = { }, { }
 local request = nil
 local modules = { }
 local DIST_PATH = "/etc/hpm"
-local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  save <package> [...]      Download package[s] without installation.\n  help                      Show this message. \n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<name>@<id>      Download source code from given Pastebin page.\n  direct:<name>@<url>       Fetch file from <url>."
+local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  save <package> [...]      Download package[s] without installation.\n  list                      Show list of installed packages.\n  help                      Show this message. \n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<name>@<id>      Download source code from given Pastebin page.\n  direct:<name>@<url>       Fetch file from <url>."
 local log = {
   info = function(message)
     if options.v then
@@ -129,8 +130,8 @@ saveManifest = function(manifest)
   end
 end
 local loadManifest
-loadManifest = function(name)
-  local path = concat(DIST_PATH, name)
+loadManifest = function(name, path)
+  path = path or concat(DIST_PATH, name)
   if exists(path) then
     local file, reason = io.open(path, "rb")
     if file then
@@ -173,8 +174,8 @@ modules.default = {
       return false, "Package cannot be removed: empty manifest."
     end
   end,
-  upgrade = function()
-    return unimplemented("default upgrade")
+  save = function()
+    return log.fatal("Incorrect source was provided! No default 'save' implementation.")
   end
 }
 modules.hel = {
@@ -231,7 +232,7 @@ modules.hel = {
         if not exists(file.dir) then
           result, response = makeDirectory(file.dir)
           if not (result) then
-            log.fatal("Failed creating '" .. tostring(file.path) .. "' directory for '" .. tostring(file.name) .. "'! \n" .. tostring(response))
+            log.fatal("Failed creating '" .. tostring(file.dir) .. "' directory for '" .. tostring(file.name) .. "'! \n" .. tostring(response))
           end
         end
         local reason
@@ -251,17 +252,41 @@ modules.hel = {
       if not (result) then
         log.fatal("Failed to download '" .. tostring(file.name) .. "' from '" .. tostring(file.url) .. "'! \n" .. tostring(response))
       end
-      log.print("Done.")
     end
+    log.print("Done.")
     data.name = name
     return data
   end
 }
-modules["local"] = { }
+modules["local"] = {
+  install = function(self, path, version)
+    local manifest = loadManifest(path, concat(path, "manifest"))
+    for key, file in pairs(manifest.files) do
+      local result, reason = copy(concat(path, file.name), concat(file.dir, file.name))
+      if not (result) then
+        log.error("Cannot copy '" .. tostring(file.name) .. "' file: " .. tostring(reason))
+      end
+    end
+    return manifest
+  end
+}
+local removePackage
+removePackage = function(source, name)
+  if not (name) then
+    log.fatal("Incorrect package name!")
+  end
+  local manifest = try(loadManifest(name))
+  try(callModuleMethod(getModuleBy(source), "remove", manifest))
+  return log.print("Done removal.")
+end
 local installPackage
 installPackage = function(source, name, meta)
   if not (name) then
     log.fatal("Incorrect package name!")
+  end
+  local manifest, reason = loadManifest(name)
+  if manifest then
+    removePackage(source, name)
   end
   if saveManifest(callModuleMethod(getModuleBy(source), "install", name, meta)) then
     return log.info("Manifest for '" .. tostring(name) .. "' package was saved.")
@@ -269,14 +294,18 @@ installPackage = function(source, name, meta)
     return log.error("Error saving manifest for '" .. tostring(name) .. "' package.")
   end
 end
-local removePackage
-removePackage = function(source, name, meta)
-  if not (name) then
-    log.fatal("Incorrect package name!")
+local printPackageList
+printPackageList = function()
+  list = try(listFiles(DIST_PATH))
+  empty = true
+  for file in list do
+    local manifest = try(loadManifest(file))
+    log.print(file .. (manifest.version and " @ " .. manifest.version or ""))
+    empty = false
   end
-  local manifest = try(loadManifest(name))
-  try(callModuleMethod(getModuleBy(source), "remove", manifest))
-  return log.print("Done removal.")
+  if empty then
+    return log.print("No packages was installed.")
+  end
 end
 local parseArguments
 parseArguments = function(...)
@@ -302,6 +331,8 @@ process = function()
     for i = 2, #args do
       removePackage(parsePackageName(args[i]))
     end
+  elseif "list" == _exp_0 then
+    return printPackageList()
   else
     return printUsage()
   end

@@ -1,12 +1,15 @@
 import isAvailable from require "component"
 import parse from require "shell"
-import exists, makeDirectory, concat, remove, copy from require "filesystem"
+import exists, makeDirectory, concat, remove, copy, list from require "filesystem"
 import serialize, unserialize from require "serialization"
 
 import exit from os
 import write, stderr from io
 import insert from table
 
+
+-- Rename some imports
+listFiles = list
 
 -- Variables
 options, args = {}, {}  -- command-line arguments
@@ -23,6 +26,7 @@ Available commands:
   install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
   remove <package> [...]    Remove all package[s] files from the system.
   save <package> [...]      Download package[s] without installation.
+  list                      Show list of installed packages.
   help                      Show this message. 
   
 Available package formats:
@@ -131,7 +135,6 @@ removeManifest = (name) ->
 --                                -- (installed package description table)
 -- Optional:
 --   remove(self, manifest)       -- remove files
---   upgrade(self, m_from, m_to)  -- replace one package version with another
 --   save(self, name, meta)       -- download package without installation
 --
 -- Omitted methods will be replaced with default implementations
@@ -151,7 +154,7 @@ modules.default = {
     else
       false, "Package cannot be removed: empty manifest."
   
-  upgrade: -> unimplemented "default upgrade"
+  save: -> log.fatal "Incorrect source was provided! No default 'save' implementation."
 }
 
 -- Hel Repository module
@@ -205,7 +208,7 @@ modules.hel = {
 
         if not exists file.dir
           result, response = makeDirectory file.dir
-          log.fatal "Failed creating '#{file.path}' directory for '#{file.name}'! \n#{response}" unless result
+          log.fatal "Failed creating '#{file.dir}' directory for '#{file.name}'! \n#{response}" unless result
 
         result, reason = pcall ->
           for chunk in response do
@@ -217,8 +220,7 @@ modules.hel = {
       if f then f\close!
       log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{response}" unless result
 
-      log.print "Done."
-
+    log.print "Done."
     data.name = name
     data
 }
@@ -239,18 +241,31 @@ modules.local = {
 
 -- Commands implementation -----------------------------------------------------
 
+removePackage = (source, name) ->
+  log.fatal "Incorrect package name!" unless name
+  manifest = try loadManifest name
+  try callModuleMethod getModuleBy(source), "remove", manifest
+  log.print "Done removal."
+
 installPackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
+  -- Check if this package was already installed
+  manifest, reason = loadManifest name
+  removePackage source, name if manifest
+  -- Install
   if saveManifest callModuleMethod getModuleBy(source), "install", name, meta
     log.info "Manifest for '#{name}' package was saved."
   else
     log.error "Error saving manifest for '#{name}' package."
 
-removePackage = (source, name, meta) ->
-  log.fatal "Incorrect package name!" unless name
-  manifest = try loadManifest name
-  try callModuleMethod getModuleBy(source), "remove", manifest
-  log.print "Done removal."
+printPackageList = ->
+  list = try listFiles DIST_PATH
+  empty = true
+  for file in list
+    manifest = try loadManifest file
+    log.print file .. (manifest.version and " @ " .. manifest.version or "")
+    empty = false
+  log.print "No packages was installed." if empty
 
 
 -- App working -----------------------------------------------------------------
@@ -269,6 +284,8 @@ process = ->
     when "remove"
       log.fatal "No package(s) was provided!" if #args < 2
       for i = 2, #args do removePackage parsePackageName args[i]
+    when "list"
+      printPackageList!
     else
       printUsage!
 
