@@ -94,14 +94,12 @@ download = function(url)
 end
 local getModuleBy
 getModuleBy = function(source)
-  local _exp_0 = source
-  if "" == _exp_0 then
-    return modules.hel
-  elseif "hel" == _exp_0 then
-    return modules.hel
+  if not source or source == "" then
+    source = "hel"
   else
-    return modules.default
+    source = source
   end
+  return modules[source] or modules.default
 end
 local callModuleMethod
 callModuleMethod = function(mod, name, ...)
@@ -113,14 +111,16 @@ callModuleMethod = function(mod, name, ...)
   end
 end
 local saveManifest
-saveManifest = function(manifest)
-  if not exists(DIST_PATH) then
-    local result, reason = makeDirectory(DIST_PATH)
+saveManifest = function(manifest, path, name)
+  path = path or DIST_PATH
+  name = name or manifest.name
+  if not exists(path) then
+    local result, reason = makeDirectory(path)
     if not result then
-      return false, "Failed creating '" .. tostring(DIST_PATH) .. "' directory for manifest files: " .. tostring(reason)
+      return false, "Failed creating '" .. tostring(path) .. "' directory for manifest files: " .. tostring(reason)
     end
   end
-  local file, reason = io.open(concat(DIST_PATH, manifest.name), "w")
+  local file, reason = io.open(concat(path, name), "w")
   if file then
     file:write(serialize(manifest))
     file:close()
@@ -212,7 +212,7 @@ modules.hel = {
     end
     return data
   end,
-  install = function(self, name, version)
+  install = function(self, name, version, save)
     log.print("Downloading package data ...")
     local status, response = download(self.URL .. "packages/" .. name)
     if not (status) then
@@ -223,23 +223,37 @@ modules.hel = {
       json = json .. chunk
     end
     local data = self:parsePackageJSON(json, version)
+    local path
+    if save then
+      path = "./" .. tostring(name) .. "/"
+    end
+    if save and not exists(path) then
+      local result
+      result, response = makeDirectory(path)
+      if not (result) then
+        log.fatal("Failed creating '" .. tostring(path) .. "' directory for package '" .. tostring(name) .. "'! \n" .. tostring(response))
+      end
+    end
     for key, file in pairs(data.files) do
       local f = nil
       local result
       result, response = download(file.url)
       if result then
         log.print("Fetching '" .. tostring(file.name) .. "' ...")
-        if not exists(file.dir) then
-          result, response = makeDirectory(file.dir)
-          if not (result) then
-            log.fatal("Failed creating '" .. tostring(file.dir) .. "' directory for '" .. tostring(file.name) .. "'! \n" .. tostring(response))
+        if not save then
+          path = file.dir
+          if not exists(path) then
+            result, response = makeDirectory(path)
+            if not (result) then
+              log.fatal("Failed creating '" .. tostring(path) .. "' directory for '" .. tostring(file.name) .. "'! \n" .. tostring(response))
+            end
           end
         end
         local reason
         result, reason = pcall(function()
           for chunk in response do
             if not f then
-              f, reason = io.open(concat(file.dir, file.name), "wb")
+              f, reason = io.open(concat(path, file.name), "wb")
               assert(f, "Failed opening file for writing: " .. tostring(reason))
             end
             f:write(chunk)
@@ -256,17 +270,22 @@ modules.hel = {
     log.print("Done.")
     data.name = name
     return data
+  end,
+  save = function(self, name, version)
+    return self:install(name, version, true)
   end
 }
 modules["local"] = {
   install = function(self, path, version)
     local manifest = loadManifest(path, concat(path, "manifest"))
     for key, file in pairs(manifest.files) do
+      log.print("Install '" .. tostring(file.name) .. "' ... ")
       local result, reason = copy(concat(path, file.name), concat(file.dir, file.name))
       if not (result) then
         log.error("Cannot copy '" .. tostring(file.name) .. "' file: " .. tostring(reason))
       end
     end
+    log.print("Done.")
     return manifest
   end
 }
@@ -292,6 +311,20 @@ installPackage = function(source, name, meta)
     return log.info("Manifest for '" .. tostring(name) .. "' package was saved.")
   else
     return log.error("Error saving manifest for '" .. tostring(name) .. "' package.")
+  end
+end
+local savePackage
+savePackage = function(source, name, meta)
+  if not (name) then
+    log.fatal("Incorrect package name!")
+  end
+  if source == "local" then
+    log.fatal("No need to save already saved package...")
+  end
+  if saveManifest(callModuleMethod(getModuleBy(source), "save", name, meta), "./" .. tostring(name) .. "/", "manifest") then
+    return log.info("Manifest for local '" .. tostring(name) .. "' package was saved.")
+  else
+    return log.error("Error saving manifest for local '" .. tostring(name) .. "' package.")
   end
 end
 local printPackageList
@@ -323,6 +356,13 @@ process = function()
     end
     for i = 2, #args do
       installPackage(parsePackageName(args[i]))
+    end
+  elseif "save" == _exp_0 then
+    if #args < 2 then
+      log.fatal("No package(s) was provided!")
+    end
+    for i = 2, #args do
+      savePackage(parsePackageName(args[i]))
     end
   elseif "remove" == _exp_0 then
     if #args < 2 then

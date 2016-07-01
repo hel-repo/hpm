@@ -79,12 +79,9 @@ download = (url) ->
   pcall request, url
 
 -- Try to find module corresponding to the 'source' string
--- TODO: implement custom modules loading
 getModuleBy = (source) ->
-  switch source
-    when "" then modules.hel
-    when "hel" then modules.hel
-    else modules.default
+  source = if not source or source == "" then "hel" else source
+  modules[source] or modules.default    
 
 -- Call module operation (with fallback to default module)
 callModuleMethod = (mod, name, ...) ->
@@ -93,13 +90,15 @@ callModuleMethod = (mod, name, ...) ->
   else modules.default[name](modules.default, ...)
 
 -- Save manifest to dist-data folder
-saveManifest = (manifest) ->
-  if not exists DIST_PATH
-    result, reason = makeDirectory DIST_PATH
+saveManifest = (manifest, path, name) ->
+  path = path or DIST_PATH
+  name = name or manifest.name
+  if not exists path
+    result, reason = makeDirectory path
     if not result
-      return false, "Failed creating '#{DIST_PATH}' directory for manifest files: #{reason}"
+      return false, "Failed creating '#{path}' directory for manifest files: #{reason}"
 
-  file, reason = io.open concat(DIST_PATH, manifest.name), "w"
+  file, reason = io.open concat(path, name), "w"
   if file
     file\write serialize manifest
     file\close!
@@ -143,7 +142,7 @@ removeManifest = (name) ->
 modules.default = {
   install: -> log.fatal "Incorrect source was provided! No default 'install' implementation."
   
-  remove: (self, manifest) -> 
+  remove: (manifest) => 
     if manifest
       if manifest.files
         for i, file in pairs(manifest.files)
@@ -163,7 +162,7 @@ modules.hel = {
   URL: "http://hel-roottree.rhcloud.com/"
 
   -- Get package data from JSON, and return as a table
-  parsePackageJSON: (self, json, versionNumber) ->
+  parsePackageJSON: (json, versionNumber) =>
     selectedVersion, selectedNumber = nil, nil
     versions = json\match '"versions":%s*(%b[])'
 
@@ -190,15 +189,19 @@ modules.hel = {
 
 
   -- Get package from repository, then parse, and install
-  install: (self, name, version) ->
+  install: (name, version, save) =>
     log.print "Downloading package data ..."
     status, response = download @URL .. "packages/" .. name
     log.fatal "HTTP request error: " .. response unless status
-
     json = ""
     for chunk in response do json ..= chunk
 
     data = @parsePackageJSON json, version
+    path = "./#{name}/" if save
+
+    if save and not exists path
+      result, response = makeDirectory path
+      log.fatal "Failed creating '#{path}' directory for package '#{name}'! \n#{response}" unless result
 
     for key, file in pairs(data.files) do
       f = nil
@@ -206,14 +209,16 @@ modules.hel = {
       if result
         log.print "Fetching '#{file.name}' ..."
 
-        if not exists file.dir
-          result, response = makeDirectory file.dir
-          log.fatal "Failed creating '#{file.dir}' directory for '#{file.name}'! \n#{response}" unless result
+        if not save
+          path = file.dir
+          if not exists path
+            result, response = makeDirectory path
+            log.fatal "Failed creating '#{path}' directory for '#{file.name}'! \n#{response}" unless result
 
         result, reason = pcall ->
           for chunk in response do
             if not f then
-              f, reason = io.open concat(file.dir, file.name), "wb"
+              f, reason = io.open concat(path, file.name), "wb"
               assert f, "Failed opening file for writing: " .. tostring(reason)
             f\write(chunk)
 
@@ -223,18 +228,24 @@ modules.hel = {
     log.print "Done."
     data.name = name
     data
+
+  -- Save package locally
+  save: (name, version) =>
+    @install name, version, true
 }
 
 -- Local-install module
 modules.local = {
-  install: (self, path, version) ->
+  install: (path, version) =>
     -- try to load data from local directory-package
     manifest = loadManifest path, concat path, "manifest"
     -- copy files to corresponding positions
     for key, file in pairs(manifest.files) do
+      log.print "Install '#{file.name}' ... "
       result, reason = copy concat(path, file.name), concat(file.dir, file.name)
       log.error "Cannot copy '#{file.name}' file: #{reason}" unless result
-    
+
+    log.print "Done."
     manifest
 }
 
@@ -257,6 +268,14 @@ installPackage = (source, name, meta) ->
     log.info "Manifest for '#{name}' package was saved."
   else
     log.error "Error saving manifest for '#{name}' package."
+
+savePackage = (source, name, meta) ->
+  log.fatal "Incorrect package name!" unless name
+  log.fatal "No need to save already saved package..." if source == "local"
+  if saveManifest callModuleMethod(getModuleBy(source), "save", name, meta), "./#{name}/", "manifest"
+    log.info "Manifest for local '#{name}' package was saved."
+  else
+    log.error "Error saving manifest for local '#{name}' package."
 
 printPackageList = ->
   list = try listFiles DIST_PATH
@@ -281,6 +300,9 @@ process = ->
     when "install"
       log.fatal "No package(s) was provided!" if #args < 2
       for i = 2, #args do installPackage parsePackageName args[i]
+    when "save"
+      log.fatal "No package(s) was provided!" if #args < 2
+      for i = 2, #args do savePackage parsePackageName args[i]
     when "remove"
       log.fatal "No package(s) was provided!" if #args < 2
       for i = 2, #args do removePackage parsePackageName args[i]
