@@ -1,7 +1,7 @@
 # Hel Package Manager
 
 Command-line package manager for OpenOS (OpenComputers).
-Allows to easily download and install programs from [Hel Repository](https://github.com/MoonlightOwl/hel).
+Allows to easily download and install programs from [Hel Repository](https://github.com/hel-repo/hel).
 Alternative app sources are supported: Pastebin, Gist, GitHub, direct links. 
 
 Also you can define your own way of package dustribution, via custom hpm modules.
