@@ -16,3 +16,14 @@ script:
   - rm -r *
   - moonc -l ../src
   - moonc -t . ../src/*
+notifications:
+  irc:
+    channels:
+      - "irc.esper.net#cc.ru"
+    use_notice: true
+    template:
+      - "New build on %{repository_slug}!"
+      - "%{repository_name}#%{build_number} [%{branch}] %{message}"
+      - "[%{commit}] %{author}: %{commit_message}"
+      - "Changes: %{compare_url}"
+      - "Build details: %{build_url}"
