@@ -1,0 +1,18 @@
+# Based on https://github.com/moteus/lua-travis-example
+language: c
+branches:
+  only:
+    - moon
+env:
+  global:
+    - LUAROCKS=2.3.0
+    - LUA=lua5.1
+before_install:
+  - source .travis/setenv_lua.sh
+install:
+  - luarocks install moonscript
+script:
+  - cd build
+  - rm -r *
+  - moonc -l ../src
+  - moonc -t . ../src/*
