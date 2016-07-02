@@ -17,7 +17,8 @@ request = nil           -- internet request method (call checkInternet to instan
 modules = {}            -- distribution modules
 
 -- Constants
-DIST_PATH = "/etc/hpm"  -- there will be stored manifests of installed packages
+DIST_PATH = "/etc/hpm/dist/"     -- there will be stored manifests of installed packages
+MODULE_PATH = "/etc/hpm/module/" -- there will be placed custom source modules
 USAGE = "Usage: hpm [-vq] <command>
   -q: Quiet mode - no console output.
   -v: Verbose mode - show additional info.
@@ -73,10 +74,23 @@ checkInternet = ->
   log.fatal "This command requires an internet card to run!" unless isAvailable "internet"
   request = request or require("internet").request
 
--- Download something
+-- Return download stream, for something
 download = (url) ->
   checkInternet!
   pcall request, url
+
+-- Load available modules
+loadCustomModules = ->
+  if not exists MODULE_PATH
+    result, reason = makeDirectory MODULE_PATH
+    if not result
+      return false, "Failed creating '#{MODULE_PATH}' directory for custom modules: #{reason}"
+  list = try listFiles MODULE_PATH
+  for file in list
+    name = file\match("^(.+)%..+$")
+    mod = dofile concat MODULE_PATH, file
+    modules[name] = mod if mod
+  true
 
 -- Try to find module corresponding to the 'source' string
 getModuleBy = (source) ->
@@ -91,6 +105,9 @@ callModuleMethod = (mod, name, ...) ->
 
 -- Save manifest to dist-data folder
 saveManifest = (manifest, path, name) ->
+  if not manifest
+    return false, "'nil' was given"
+
   path = path or DIST_PATH
   name = name or manifest.name
   if not exists path
@@ -264,18 +281,21 @@ installPackage = (source, name, meta) ->
   manifest, reason = loadManifest name
   removePackage source, name if manifest
   -- Install
-  if saveManifest callModuleMethod getModuleBy(source), "install", name, meta
+  result, reason = saveManifest callModuleMethod getModuleBy(source), "install", name, meta
+  if result
     log.info "Manifest for '#{name}' package was saved."
   else
-    log.error "Error saving manifest for '#{name}' package."
+    log.error "Error saving manifest for '#{name}' package: #{reason}."
 
 savePackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
   log.fatal "No need to save already saved package..." if source == "local"
-  if saveManifest callModuleMethod(getModuleBy(source), "save", name, meta), "./#{name}/", "manifest"
+  result, reason = saveManifest callModuleMethod(getModuleBy(source), "save", name, meta),
+    "./#{name}/", "manifest"
+  if result
     log.info "Manifest for local '#{name}' package was saved."
   else
-    log.error "Error saving manifest for local '#{name}' package."
+    log.error "Error saving manifest for local '#{name}' package: #{reason}."
 
 printPackageList = ->
   list = try listFiles DIST_PATH
@@ -313,5 +333,6 @@ process = ->
 
 -- Run!
 parseArguments ...
+loadCustomModules!
 process!
 0

@@ -25,7 +25,8 @@ local listFiles = list
 local options, args = { }, { }
 local request = nil
 local modules = { }
-local DIST_PATH = "/etc/hpm"
+local DIST_PATH = "/etc/hpm/dist/"
+local MODULE_PATH = "/etc/hpm/module/"
 local USAGE = "Usage: hpm [-vq] <command>\n  -q: Quiet mode - no console output.\n  -v: Verbose mode - show additional info.\n  \nAvailable commands:\n  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.\n  remove <package> [...]    Remove all package[s] files from the system.\n  save <package> [...]      Download package[s] without installation.\n  list                      Show list of installed packages.\n  help                      Show this message. \n  \nAvailable package formats:\n  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).\n  local:<path>              Get package from local file system.\n  pastebin:<name>@<id>      Download source code from given Pastebin page.\n  direct:<name>@<url>       Fetch file from <url>."
 local log = {
   info = function(message)
@@ -92,6 +93,24 @@ download = function(url)
   checkInternet()
   return pcall(request, url)
 end
+local loadCustomModules
+loadCustomModules = function()
+  if not exists(MODULE_PATH) then
+    local result, reason = makeDirectory(MODULE_PATH)
+    if not result then
+      return false, "Failed creating '" .. tostring(MODULE_PATH) .. "' directory for custom modules: " .. tostring(reason)
+    end
+  end
+  list = try(listFiles(MODULE_PATH))
+  for file in list do
+    local name = file:match("^(.+)%..+$")
+    local mod = dofile(concat(MODULE_PATH, file))
+    if mod then
+      modules[name] = mod
+    end
+  end
+  return true
+end
 local getModuleBy
 getModuleBy = function(source)
   if not source or source == "" then
@@ -112,6 +131,9 @@ callModuleMethod = function(mod, name, ...)
 end
 local saveManifest
 saveManifest = function(manifest, path, name)
+  if not manifest then
+    return false, "'nil' was given"
+  end
   path = path or DIST_PATH
   name = name or manifest.name
   if not exists(path) then
@@ -307,10 +329,12 @@ installPackage = function(source, name, meta)
   if manifest then
     removePackage(source, name)
   end
-  if saveManifest(callModuleMethod(getModuleBy(source), "install", name, meta)) then
+  local result
+  result, reason = saveManifest(callModuleMethod(getModuleBy(source), "install", name, meta))
+  if result then
     return log.info("Manifest for '" .. tostring(name) .. "' package was saved.")
   else
-    return log.error("Error saving manifest for '" .. tostring(name) .. "' package.")
+    return log.error("Error saving manifest for '" .. tostring(name) .. "' package: " .. tostring(reason) .. ".")
   end
 end
 local savePackage
@@ -321,10 +345,11 @@ savePackage = function(source, name, meta)
   if source == "local" then
     log.fatal("No need to save already saved package...")
   end
-  if saveManifest(callModuleMethod(getModuleBy(source), "save", name, meta), "./" .. tostring(name) .. "/", "manifest") then
+  local result, reason = saveManifest(callModuleMethod(getModuleBy(source), "save", name, meta), "./" .. tostring(name) .. "/", "manifest")
+  if result then
     return log.info("Manifest for local '" .. tostring(name) .. "' package was saved.")
   else
-    return log.error("Error saving manifest for local '" .. tostring(name) .. "' package.")
+    return log.error("Error saving manifest for local '" .. tostring(name) .. "' package: " .. tostring(reason) .. ".")
   end
 end
 local printPackageList
@@ -378,5 +403,6 @@ process = function()
   end
 end
 parseArguments(...)
+loadCustomModules()
 process()
 return 0

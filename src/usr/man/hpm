@@ -9,7 +9,15 @@ DESCRIPTION
   Also you can define your own way of package dustribution, via custom hpm modules.
 
   Available commands:
+  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
+  remove <package> [...]    Remove all package[s] files from the system.
+  save <package> [...]      Download package[s] without installation.
+  list                      Show list of installed packages.
+  help                      Show this message. 
+
+  Available package formats:
   [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
+                            If there was no version specified, the last version will be installed.
   local:<path>              Get package from local file system.
   pastebin:<id>             Download source code from given Pastebin page.
   direct:<url>              Fetch file from <url>.
