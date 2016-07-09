@@ -1,5 +1,4 @@
-# Hel Package Manager
-![Travis CI build status](https://travis-ci.org/hel-repo/hpm.svg?branch=moon)
+# Hel Package Manager ● ![Travis CI build status](https://travis-ci.org/hel-repo/hpm.svg?branch=moon)
 
 Command-line package manager for OpenOS (OpenComputers).
 Allows to easily download and install programs from [Hel Repository](https://github.com/hel-repo/hel).
