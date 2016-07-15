@@ -204,9 +204,8 @@ modules.hel = {
   URL = "http://hel-roottree.rhcloud.com/",
   parsePackageJSON = function(self, json, versionNumber)
     local selectedVersion, selectedNumber = nil, nil
-    local versions = json:match('"versions":%s*(%b[])')
-    for version in versions:gmatch("%b{}") do
-      local number = version:match('"number":%s*"(.-)"')
+    local versions = json:match('"versions":%s*(%b{})')
+    for number, version in versions:gmatch('"(.-)":%s*(%b{})') do
       if number == versionNumber then
         selectedVersion, selectedNumber = version, number
         break
@@ -221,9 +220,8 @@ modules.hel = {
       version = selectedNumber,
       files = { }
     }
-    local files = selectedVersion:match('"files":%s*(%b[])')
-    for file in files:gmatch("%b{}") do
-      local url = file:match('"url":%s*"(.-)"')
+    local files = selectedVersion:match('"files":%s*(%b{})')
+    for url, file in files:gmatch('"(.-)":%s*(%b{})') do
       local dir = file:match('"dir":%s*"(.-)"')
       local name = file:match('"name":%s*"(.-)"')
       insert(data.files, {

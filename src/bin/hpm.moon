@@ -181,10 +181,9 @@ modules.hel = {
   -- Get package data from JSON, and return as a table
   parsePackageJSON: (json, versionNumber) =>
     selectedVersion, selectedNumber = nil, nil
-    versions = json\match '"versions":%s*(%b[])'
+    versions = json\match '"versions":%s*(%b{})'
 
-    for version in versions\gmatch("%b{}") do
-      number = version\match '"number":%s*"(.-)"'
+    for number, version in versions\gmatch('"(.-)":%s*(%b{})') do
       if number == versionNumber then
         selectedVersion, selectedNumber = version, number
         break
@@ -194,10 +193,9 @@ modules.hel = {
     log.fatal "Incorrect JSON format!\n" .. json unless selectedVersion
 
     data = { version: selectedNumber, files: {} }
-    files = selectedVersion\match '"files":%s*(%b[])'
+    files = selectedVersion\match '"files":%s*(%b{})'
 
-    for file in files\gmatch("%b{}") do
-      url = file\match '"url":%s*"(.-)"'
+    for url, file in files\gmatch('"(.-)":%s*(%b{})') do
       dir = file\match '"dir":%s*"(.-)"'
       name = file\match '"name":%s*"(.-)"'
       insert data.files, { :url, :dir, :name }
