@@ -43,7 +43,7 @@ log =
   info: (message) -> print message if options.v
   print: (message) -> print message unless options.q
   error: (message) -> stderr\write message .. '\n' unless options.q
-  fatal: (message) -> 
+  fatal: (message) ->
     stderr\write message .. '\n' unless options.q
     exit 1
 
@@ -95,7 +95,7 @@ loadCustomModules = ->
 -- Try to find module corresponding to the 'source' string
 getModuleBy = (source) ->
   source = if not source or source == "" then "hel" else source
-  modules[source] or modules.default    
+  modules[source] or modules.default
 
 -- Call module operation (with fallback to default module)
 callModuleMethod = (mod, name, ...) ->
@@ -159,7 +159,7 @@ removeManifest = (name) ->
 modules.default = {
   install: -> log.fatal "Incorrect source was provided! No default 'install' implementation."
   
-  remove: (manifest) => 
+  remove: (manifest) =>
     if manifest
       if manifest.files
         for i, file in pairs(manifest.files)
