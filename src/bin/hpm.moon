@@ -532,14 +532,14 @@ MODULE_PATH = "/etc/hpm/module/" -- there will be placed custom source modules
 USAGE = "Usage: hpm [-vq] <command>
   -q: Quiet mode - no console output.
   -v: Verbose mode - show additional info.
-  
+
 Available commands:
   install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
   remove <package> [...]    Remove all package[s] files from the system.
   save <package> [...]      Download package[s] without installation.
   list                      Show list of installed packages.
-  help                      Show this message. 
-  
+  help                      Show this message.
+
 Available package formats:
   [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
   local:<path>              Get package from local file system.
@@ -668,7 +668,7 @@ removeManifest = (name) ->
 -- Default module
 modules.default = {
   install: -> log.fatal "Incorrect source was provided! No default 'install' implementation."
-  
+
   remove: (manifest) =>
     if manifest
       if manifest.files
@@ -679,7 +679,7 @@ modules.default = {
       removeManifest manifest.name
     else
       false, "Package cannot be removed: empty manifest."
-  
+
   save: -> log.fatal "Incorrect source was provided! No default 'save' implementation."
 }
 
