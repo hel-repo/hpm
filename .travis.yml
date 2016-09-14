@@ -12,10 +12,7 @@ before_install:
 install:
   - luarocks install moonscript
 script:
-  - cd build
-  - rm -r *
-  - moonc -l ../src
-  - moonc -t . ../src/*
+  - bash ./build.sh
 notifications:
   irc:
     channels:
