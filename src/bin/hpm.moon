@@ -689,29 +689,29 @@ modules.hel = {
   URL: "http://hel-roottree.rhcloud.com/"
 
   -- Get package data from JSON, and return as a table
-  parsePackageJSON: (json, spec) =>
-    selectedVersion, selectedNumber = nil, nil
-    versionsString = json\match '"versions":%s*(%b{})'
+  parsePackageJSON: (data, spec) =>
+    selectedVersion = nil
+    decoded = json\decode data
 
-    log.fatal "Incorrect JSON format!\n#{json}" unless versionsString
+    log.fatal "Incorrect JSON format!\n#{json}" unless decoded
 
     versions = {}
 
-    for number, data in versionsString\gmatch('"(.-)":%s*(%b{})') do
+    for number, data in pairs decoded.versions do
       success, v = pcall semver.Version number
       log.fatal "Could not parse the version in package: #{v}" unless success
       versions[v] = data
 
     bestMatch = versions[spec\select [version for version, data in pairs versions]]
+    selectedVersion = tostring bestMatch
 
     log.fatal "No candidate for version specification '#{spec}' found!" unless bestMatch
 
-    data = { version: selectedNumber, files: {} }
-    files = selectedVersion\match '"files":%s*(%b{})'
+    data = { version: selectedVersion, files: {} }
 
-    for url, file in files\gmatch('"(.-)":%s*(%b{})') do
-      dir = file\match '"dir":%s*"(.-)"'
-      name = file\match '"name":%s*"(.-)"'
+    for url, file in pairs versions[bestMatch].files do
+      dir = file.dir
+      name = file.name
       insert data.files, { :url, :dir, :name }
 
     data
