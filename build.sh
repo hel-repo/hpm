@@ -4,7 +4,7 @@ set -e
 if [ -e ./build/ ]; then
 	rm -rf ./build/
 fi
-moonc -l ./src/
+moonc -l ./src/ || true
 cp -r ./src/ ./build/
 moonc ./build/
 find ./build/ -name "*.moon" -delete
