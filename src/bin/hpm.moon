@@ -689,11 +689,11 @@ modules.hel = {
   URL: "http://hel-roottree.rhcloud.com/"
 
   -- Get package data from JSON, and return as a table
-  parsePackageJSON: (data, spec) =>
+  parsePackageJSON: (jsonData, spec) =>
     selectedVersion = nil
-    decoded = json\decode data
+    decoded = json\decode jsonData
 
-    log.fatal "Incorrect JSON format!\n#{json}" unless decoded
+    log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
 
     versions = {}
 
@@ -729,23 +729,25 @@ modules.hel = {
     for chunk in response do json ..= chunk
 
     data = @parsePackageJSON json, spec
-    path = "./#{name}/" if save
+    prefix = if save then
+      "./#{name}/"
+    else
+      "/"
 
-    if save and not exists path
-      result, response = makeDirectory path
-      log.fatal "Failed creating '#{path}' directory for package '#{name}'! \n#{response}" unless result
+    if save and not exists prefix
+      result, response = makeDirectory prefix
+      log.fatal "Failed creating '#{prefix}' directory for package '#{name}'! \n#{response}" unless result
 
-    for key, file in pairs(data.files) do
+    for key, file in pairs data.files do
       f = nil
       result, response = download file.url
       if result
         log.print "Fetching '#{file.name}' ..."
 
-        if not save
-          path = file.dir
-          if not exists path
-            result, response = makeDirectory path
-            log.fatal "Failed creating '#{path}' directory for '#{file.name}'! \n#{response}" unless result
+        path = prefix .. file.dir
+        if not exists path
+          result, response = makeDirectory path
+          log.fatal "Failed creating '#{path}' directory for '#{file.name}'! \n#{response}" unless result
 
         result, reason = pcall ->
           for chunk in response do
