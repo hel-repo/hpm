@@ -572,6 +572,13 @@ try = (result, reason) ->
 
 -- Helper methods --------------------------------------------------------------
 
+-- Check if an element is in the table
+isin = (v, tbl) ->
+  for k, value in pairs tbl do
+    if value == v then
+      return true, k
+  return false
+
 -- Check if given string contains something useful
 empty = (str) -> not str or #str < 1
 
@@ -689,11 +696,8 @@ modules.hel = {
   URL: "http://hel-roottree.rhcloud.com/"
 
   -- Get package data from JSON, and return as a table
-  parsePackageJSON: (jsonData, spec) =>
+  parsePackageJSON: (decoded, spec) =>
     selectedVersion = nil
-    decoded = json\decode jsonData
-
-    log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
 
     versions = {}
 
@@ -707,14 +711,30 @@ modules.hel = {
 
     log.fatal "No candidate for version specification '#{spec}' found!" unless bestMatch
 
-    data = { version: selectedVersion, files: {} }
+    data = { version: selectedVersion, files: {}, dependencies: {} }
 
     for url, file in pairs versions[bestMatch].files do
       dir = file.dir
       name = file.name
       insert data.files, { :url, :dir, :name }
 
+    for depName, depData in pairs versions[bestMatch].depends do
+      version = depData.version
+      depType = depData.type
+      insert data.dependencies, { name: depName, :version, type: depType }
+
     data
+
+
+  getPackageSpec: (name) =>
+    log.print "Downloading package data ..."
+    status, response = download @URL .. "packages/" .. name
+    log.fatal "HTTP request error: " .. response unless status
+    jsonData = ""
+    for chunk in response do jsonData ..= chunk
+    decoded = json\decode jsonData
+    log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
+    decoded
 
 
   -- Get package from repository, then parse, and install
@@ -722,13 +742,11 @@ modules.hel = {
     log.print "Creating version specification for #{specString} ..."
     success, spec = pcall semver.Spec specString
     log.fatal "Could not parse the version specification: #{spec}!" unless success
-    log.print "Downloading package data ..."
-    status, response = download @URL .. "packages/" .. name
-    log.fatal "HTTP request error: " .. response unless status
-    json = ""
-    for chunk in response do json ..= chunk
 
-    data = @parsePackageJSON json, spec
+    data = @getPackageSpec name
+
+    data = @parsePackageJSON data, spec
+
     prefix = if save then
       "./#{name}/"
     else
@@ -760,12 +778,28 @@ modules.hel = {
       log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{response}" unless result
 
     log.print "Done."
-    data.name = name
-    data
+    { :name, version: tostring data.version, files: data.files }
+
 
   -- Save package locally
   save: (name, version) =>
     @install name, version, true
+
+
+  resolveDependencies: (name, version, resolved={}, unresolved={}) =>
+    unresolved[name] = true
+    manifest = loadManifest name
+    if not manifest or Spec(manifest.version) < version then
+      spec = @getPackageSpec name
+      data = @parsePackageJSON spec, version
+      for dep in *data.dependencies do
+        if not isin(dep.name, resolved) then
+          if isin(dep.name, unresolved) then
+            log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep.name}', and '#{dep.name}' depends on '#{name}'."
+          @resolveDependencies dep.name, dep.version, resolved, unresolved
+    append resoled, name
+    unresolved[name] = nil
+    resolved
 }
 
 -- Local-install module
