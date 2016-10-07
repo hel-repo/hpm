@@ -1,12 +1,3 @@
-import isAvailable from require "component"
-import parse from require "shell"
-import exists, makeDirectory, concat, remove, copy, list from require "filesystem"
-import serialize, unserialize from require "serialization"
-
-import exit from os
-import write, stderr from io
-import insert from table
-
 semver = (() ->
   _ = [[
      Copyright (c) The python-semanticversion project
@@ -518,6 +509,16 @@ semver = (() ->
   })!
 
 
+import isAvailable from require "component"
+import parse, getWorkingDirectory from require "shell"
+import exists, makeDirectory, concat, remove, copy, list from require "filesystem"
+import serialize, unserialize from require "serialization"
+
+import exit from os
+import write, stderr from io
+import insert from table
+
+
 -- Rename some imports
 listFiles = list
 
@@ -696,17 +697,17 @@ modules.hel = {
   URL: "http://hel-roottree.rhcloud.com/"
 
   -- Get package data from JSON, and return as a table
-  parsePackageJSON: (decoded, spec) =>
+  parsePackageJSON: (decoded, spec=semver.Spec "*") =>
     selectedVersion = nil
 
     versions = {}
 
     for number, data in pairs decoded.versions do
-      success, v = pcall semver.Version number
-      log.fatal "Could not parse the version in package: #{v}" unless success
+      v = semver.Version number
+      log.fatal "Could not parse the version in package: #{v}" unless v
       versions[v] = data
 
-    bestMatch = versions[spec\select [version for version, data in pairs versions]]
+    bestMatch = spec\select [version for version, data in pairs versions]
     selectedVersion = tostring bestMatch
 
     log.fatal "No candidate for version specification '#{spec}' found!" unless bestMatch
@@ -739,7 +740,7 @@ modules.hel = {
 
   rawInstall: (pkgData, save) =>
     prefix = if save then
-      "./#{pkgData.name}/"
+      concat getWorkingDirectory!, pkgData.name
     else
       "/"
 
@@ -757,13 +758,14 @@ modules.hel = {
 
     for key, file in pairs pkgData.files do
       f = nil
-      result, response = download file.url
-      if result
+      result, response, reason = download file.url
+      if result and response
         log.print "Fetching '#{file.name}' ..."
 
         path = prefix .. file.dir
         if not exists path
           result, response = makeDirectory path
+          print path
           log.fatal "Failed creating '#{path}' directory for '#{file.name}'! \n#{response}" unless result
 
         result, reason = pcall ->
@@ -774,10 +776,10 @@ modules.hel = {
             f\write(chunk)
 
       if f then f\close!
-      log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{response}" unless result
+      log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{reason}" unless result
 
     log.print "Done."
-    { name: pkgData.name, version: tostring pkgData.version, files: pkgData.files, dependencies: pkgData.dependencies }
+    { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies }
 
 
   -- Save package locally
@@ -785,20 +787,21 @@ modules.hel = {
     @install name, version, true
 
 
-  resolveDependencies: (name, version, resolved={}, unresolved={}) =>
-    insert unresolved, { :name, :version }
+  resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
+    insert unresolved, { :name, version: "" }
     manifest = loadManifest name
-    if not manifest or semver.Spec(manifest.version) < version then
+    if not manifest or verSpec\match semver.Version(manifest.version) then
       spec = @getPackageSpec name
-      data = @parsePackageJSON spec, version
+      data = @parsePackageJSON spec, verSpec
+      unresolved[#unresolved].version = data.version
       for dep in *data.dependencies do
         if not isin(dep.name, resolved) then
           _, key = isin(dep.name, unresolved)
           if key then
             if unresolved[key].version == dep.version then
-              log.fatal "Circular dependencies detected: '#{name}@#{tostring version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring version}'."
+              log.fatal "Circular dependencies detected: '#{name}@#{tostring data.version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring spec.version}'."
             else
-              log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring version}'."
+              log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
           @resolveDependencies dep.name, dep.version, resolved, unresolved
       insert resolved, { :spec, pkg: data }
     unresolved[#unresolved] = nil
@@ -806,15 +809,18 @@ modules.hel = {
 
 
   -- Get package from repository, then parse, and install
-  install: (name, specString, save) =>
+  install: (name, specString="*", save) =>
+    specString = "*" if empty(specString)
     log.print "Creating version specification for #{specString} ..."
-    success, spec = pcall semver.Spec specString
+    success, spec = pcall (() -> semver.Spec specString)
     log.fatal "Could not parse the version specification: #{spec}!" unless success
 
     dependencyGraph = @resolveDependencies name, spec
+    manifests = {}
     for node in *dependencyGraph do
       log.print "Installing '#{node.spec.name}@#{tostring node.pkg.version}'..."
-      @rawInstall node.pkg, save
+      insert manifests, @rawInstall node.pkg, save
+    manifests
 }
 
 -- Local-install module
@@ -829,7 +835,7 @@ modules.local = {
       log.error "Cannot copy '#{file.name}' file: #{reason}" unless result
 
     log.print "Done."
-    manifest
+    { manifest }
 }
 
 
@@ -847,21 +853,30 @@ installPackage = (source, name, meta) ->
   manifest, reason = loadManifest name
   removePackage source, name if manifest
   -- Install
-  result, reason = saveManifest callModuleMethod getModuleBy(source), "install", name, meta
-  if result
-    log.info "Manifest for '#{name}' package was saved."
+  result, reason = callModuleMethod getModuleBy(source), "install", name, meta
+  if result then
+    for manifest in *result do
+      success, reason = saveManifest manifest
+      if success
+        log.info "Manifest for '#{name}' package was saved."
+      else
+        log.error "Error saving manifest for '#{name}' package: #{reason}."
   else
-    log.error "Error saving manifest for '#{name}' package: #{reason}."
+    log.error "Error installing package: #{reason}"
 
 savePackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
   log.fatal "No need to save already saved package..." if source == "local"
-  result, reason = saveManifest callModuleMethod(getModuleBy(source), "save", name, meta),
-    "./#{name}/", "manifest"
-  if result
-    log.info "Manifest for local '#{name}' package was saved."
+  result, reason = callModuleMethod getModuleBy(source), "save", name, meta
+  if result then
+    for manifest in *result do
+      success, reason = saveManifest result, "./#{manifest.name}/", "manifest"
+      if success
+        log.info "Manifest for local '#{name}' package was saved."
+      else
+        log.error "Error saving manifest for local '#{name}' package: #{reason}."
   else
-    log.error "Error saving manifest for local '#{name}' package: #{reason}."
+    log.error "Error installing package: #{reason}."
 
 printPackageList = ->
   list = try listFiles DIST_PATH
