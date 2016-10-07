@@ -1,19 +1,38 @@
-HEL Package Manager
-===================
+# Hel Package Manager ● [![Build Status](https://travis-ci.org/hel-repo/hpm.svg?branch=moon)](https://travis-ci.org/hel-repo/hpm)
 
-## About
-HPM is package manager for OpenComputers (minecraft mod)
-*Version:* dev
+Command-line package manager for OpenOS (OpenComputers).
+Allows to easily download and install programs from [Hel Repository](https://github.com/hel-repo/hel).
+Alternative app sources are supported: Pastebin, Gist, GitHub, direct links. 
 
-It's in very early development stage, so contribute.
+Also you can define your own way of package dustribution, via custom hpm modules.
+
+HPM is in very early development stage, so feel free to contribute.
 
 ## Features
  * OpenSource ;)
- * Fast
- * Configurable
- * Modular
+ * Small & Fast
+ * Configurable & Extendable
  * Cool
 
-## Download
-No download link now, because it haven't been released yet.
+## Usage
+```
+Usage: hpm [-vq] <command>
+  -q: Quiet mode - no console output.
+  -v: Verbose mode - show additional info.
+  
+Available commands:
+  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
+  remove <package> [...]    Remove all package[s] files from the system.
+  save <package> [...]      Download package[s] without installation.
+  list                      Show list of installed packages.
+  help                      Show this message. 
+  
+Available package formats:
+  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
+  local:<path>              Get package from local file system.
+  pastebin:<name>@<id>      Download source code from given Pastebin page.
+  direct:<name>@<url>       Fetch file from <url>.
+```
 
+## Download
+You can find the last development build here, in the `/build` directory.
