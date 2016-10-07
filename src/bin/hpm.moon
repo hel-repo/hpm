@@ -711,7 +711,7 @@ modules.hel = {
 
     log.fatal "No candidate for version specification '#{spec}' found!" unless bestMatch
 
-    data = { version: selectedVersion, files: {}, dependencies: {} }
+    data = { name: decoded.name, version: selectedVersion, files: {}, dependencies: {} }
 
     for url, file in pairs versions[bestMatch].files do
       dir = file.dir
@@ -737,26 +737,25 @@ modules.hel = {
     decoded
 
 
-  -- Get package from repository, then parse, and install
-  install: (name, specString, save) =>
-    log.print "Creating version specification for #{specString} ..."
-    success, spec = pcall semver.Spec specString
-    log.fatal "Could not parse the version specification: #{spec}!" unless success
-
-    data = @getPackageSpec name
-
-    data = @parsePackageJSON data, spec
-
+  rawInstall: (pkgData, save) =>
     prefix = if save then
-      "./#{name}/"
+      "./#{pkgData.name}/"
     else
       "/"
 
     if save and not exists prefix
       result, response = makeDirectory prefix
-      log.fatal "Failed creating '#{prefix}' directory for package '#{name}'! \n#{response}" unless result
+      log.fatal "Failed creating '#{prefix}' directory for package '#{pkgData.name}'! \n#{response}" unless result
+    elseif not save
+      manifest = loadManifest pkgData.name
+      if manifest then
+        if manifest.version == tostring pkgData.version then
+          log.print "'#{pkgData.name}@#{manifest.version}' is already installed, skipping..."
+          return manifest
+        else
+          log.fatal "'#{pkgData.name}@#{pkgData.version}' was attempted to install, however, another version of the same package is already installed: '#{pkgData.name}@#{manifest.version}'"
 
-    for key, file in pairs data.files do
+    for key, file in pairs pkgData.files do
       f = nil
       result, response = download file.url
       if result
@@ -778,7 +777,7 @@ modules.hel = {
       log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{response}" unless result
 
     log.print "Done."
-    { :name, version: tostring data.version, files: data.files }
+    { name: pkgData.name, version: tostring pkgData.version, files: pkgData.files, dependencies: pkgData.dependencies }
 
 
   -- Save package locally
@@ -787,19 +786,35 @@ modules.hel = {
 
 
   resolveDependencies: (name, version, resolved={}, unresolved={}) =>
-    unresolved[name] = true
+    insert unresolved, { :name, :version }
     manifest = loadManifest name
-    if not manifest or Spec(manifest.version) < version then
+    if not manifest or semver.Spec(manifest.version) < version then
       spec = @getPackageSpec name
       data = @parsePackageJSON spec, version
       for dep in *data.dependencies do
         if not isin(dep.name, resolved) then
-          if isin(dep.name, unresolved) then
-            log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep.name}', and '#{dep.name}' depends on '#{name}'."
+          _, key = isin(dep.name, unresolved)
+          if key then
+            if unresolved[key].version == dep.version then
+              log.fatal "Circular dependencies detected: '#{name}@#{tostring version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring version}'."
+            else
+              log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring version}'."
           @resolveDependencies dep.name, dep.version, resolved, unresolved
-    append resoled, name
-    unresolved[name] = nil
+      insert resolved, { :spec, pkg: data }
+    unresolved[#unresolved] = nil
     resolved
+
+
+  -- Get package from repository, then parse, and install
+  install: (name, specString, save) =>
+    log.print "Creating version specification for #{specString} ..."
+    success, spec = pcall semver.Spec specString
+    log.fatal "Could not parse the version specification: #{spec}!" unless success
+
+    dependencyGraph = @resolveDependencies name, spec
+    for node in *dependencyGraph do
+      log.print "Installing '#{node.spec.name}@#{tostring node.pkg.version}'..."
+      @rawInstall node.pkg, save
 }
 
 -- Local-install module
