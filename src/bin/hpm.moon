@@ -535,14 +535,14 @@ USAGE = "Usage: hpm [-vq] <command>
   -v: Verbose mode - show additional info.
 
 Available commands:
-  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
-  remove <package> [...]    Remove all package[s] files from the system.
-  save <package> [...]      Download package[s] without installation.
+  install <package> [...]   Download package[s] from the Hel Repository, and install it to the system.
+  remove <package> [...]    Remove package[s] from the system.
+  save <package> [...]      Download package[s] without installation to the current directory.
   list                      Show list of installed packages.
   help                      Show this message.
 
 Available package formats:
-  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
+  [hel:]<name>[@<version>]  Package from the Hel Package Repository (default option).
   local:<path>              Get package from local file system.
   pastebin:<name>@<id>      Download source code from given Pastebin page.
   direct:<name>@<url>       Fetch file from <url>."
@@ -602,7 +602,7 @@ loadCustomModules = ->
   if not exists MODULE_PATH
     result, reason = makeDirectory MODULE_PATH
     if not result
-      return false, "Failed creating '#{MODULE_PATH}' directory for custom modules: #{reason}"
+      return false, "Failed to create '#{MODULE_PATH}' directory for custom modules: #{reason}"
   list = try listFiles MODULE_PATH
   for file in list
     name = file\match("^(.+)%..+$")
@@ -624,14 +624,14 @@ callModuleMethod = (mod, name, ...) ->
 -- Save manifest to dist-data folder
 saveManifest = (manifest, path, name) ->
   if not manifest
-    return false, "'nil' was given"
+    return false, "'nil' given"
 
   path = path or DIST_PATH
   name = name or manifest.name
   if not exists path
     result, reason = makeDirectory path
     if not result
-      return false, "Failed creating '#{path}' directory for manifest files: #{reason}"
+      return false, "Failed to create '#{path}' directory for manifest files: #{reason}"
 
   file, reason = io.open concat(path, name), "w"
   if file
@@ -639,7 +639,7 @@ saveManifest = (manifest, path, name) ->
     file\close!
     true
   else
-    false, "Failed opening file for writing: #{reason}"
+    false, "Failed to open file for writing: #{reason}"
 
 -- Read package manifest from file
 loadManifest = (name, path) ->
@@ -675,7 +675,7 @@ removeManifest = (name) ->
 
 -- Default module
 modules.default = {
-  install: -> log.fatal "Incorrect source was provided! No default 'install' implementation."
+  install: -> log.fatal "Incorrect source is provided! No default 'install' implementation."
 
   remove: (manifest) =>
     if manifest
@@ -683,12 +683,12 @@ modules.default = {
         for i, file in pairs(manifest.files)
           path = concat file.dir, file.name
           result, reason = remove path
-          return false, "Failed removing '#{path}' file: #{reason}" unless result
+          return false, "Failed to remove '#{path}' file: #{reason}" unless result
       removeManifest manifest.name
     else
-      false, "Package cannot be removed: empty manifest."
+      false, "Package can't be removed: the manifest is empty."
 
-  save: -> log.fatal "Incorrect source was provided! No default 'save' implementation."
+  save: -> log.fatal "Incorrect source is provided! No default 'save' implementation."
 }
 
 -- Hel Repository module
@@ -728,7 +728,7 @@ modules.hel = {
 
 
   getPackageSpec: (name) =>
-    log.print "Downloading package data ..."
+    log.print "Downloading package data for #{name} ..."
     status, response = download @URL .. "packages/" .. name
     log.fatal "HTTP request error: " .. response unless status
     jsonData = ""
@@ -766,13 +766,13 @@ modules.hel = {
         if not exists path
           result, response = makeDirectory path
           print path
-          log.fatal "Failed creating '#{path}' directory for '#{file.name}'! \n#{response}" unless result
+          log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
 
         result, reason = pcall ->
           for chunk in response do
             if not f then
               f, reason = io.open concat(path, file.name), "wb"
-              assert f, "Failed opening file for writing: " .. tostring(reason)
+              assert f, "Failed to open file for writing: " .. tostring(reason)
             f\write(chunk)
 
       if f then f\close!
@@ -802,7 +802,7 @@ modules.hel = {
               log.fatal "Circular dependencies detected: '#{name}@#{tostring data.version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring spec.version}'."
             else
               log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
-          @resolveDependencies dep.name, dep.version, resolved, unresolved
+          @resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
       insert resolved, { :spec, pkg: data }
     unresolved[#unresolved] = nil
     resolved
@@ -858,11 +858,11 @@ installPackage = (source, name, meta) ->
     for manifest in *result do
       success, reason = saveManifest manifest
       if success
-        log.info "Manifest for '#{name}' package was saved."
+        log.info "Saved the manifest for '#{name}' package."
       else
-        log.error "Error saving manifest for '#{name}' package: #{reason}."
+        log.error "Couldn't save the manifest for '#{name}' package: #{reason}."
   else
-    log.error "Error installing package: #{reason}"
+    log.error "Couldn't install package: #{reason}"
 
 savePackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
@@ -872,11 +872,11 @@ savePackage = (source, name, meta) ->
     for manifest in *result do
       success, reason = saveManifest result, "./#{manifest.name}/", "manifest"
       if success
-        log.info "Manifest for local '#{name}' package was saved."
+        log.info "Saved the manifest for local '#{name}' package."
       else
-        log.error "Error saving manifest for local '#{name}' package: #{reason}."
+        log.error "Couldn't save manifest for local '#{name}' package: #{reason}."
   else
-    log.error "Error installing package: #{reason}."
+    log.error "Couldn't install package: #{reason}."
 
 printPackageList = ->
   list = try listFiles DIST_PATH
@@ -899,13 +899,13 @@ parseArguments = (...) ->
 process = ->
   switch args[1]
     when "install"
-      log.fatal "No package(s) was provided!" if #args < 2
+      log.fatal "No package(s) provided!" if #args < 2
       for i = 2, #args do installPackage parsePackageName args[i]
     when "save"
-      log.fatal "No package(s) was provided!" if #args < 2
+      log.fatal "No package(s) provided!" if #args < 2
       for i = 2, #args do savePackage parsePackageName args[i]
     when "remove"
-      log.fatal "No package(s) was provided!" if #args < 2
+      log.fatal "No package(s) provided!" if #args < 2
       for i = 2, #args do removePackage parsePackageName args[i]
     when "list"
       printPackageList!
