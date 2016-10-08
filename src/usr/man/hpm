@@ -27,6 +27,9 @@ OPTIONS
     Quiet mode - no console output.
   -v
     Verbose mode - show additional info.
+ --c, --config
+      Path to hpm config file.
+
 
 EXAMPLES
   hpm install holo@0.7.0
