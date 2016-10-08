@@ -787,6 +787,7 @@ modules.hel = {
     @install name, version, true
 
 
+  -- Get an ordered list of packages for installation, resolving dependencies.
   resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
     insert unresolved, { :name, version: "" }
     manifest = loadManifest name
@@ -795,8 +796,17 @@ modules.hel = {
       data = @parsePackageJSON spec, verSpec
       unresolved[#unresolved].version = data.version
       for dep in *data.dependencies do
-        if not isin(dep.name, resolved) then
-          _, key = isin(dep.name, unresolved)
+        isResolved = false
+        for pkg in *resolved do
+          if pkg.pkg.name == dep.name then
+            isResolved = true
+            break
+        if not isResolved then
+          key = nil
+          for k, pkg in pairs unresolved do
+            if pkg.name == dep.name then
+              key = k
+              break
           if key then
             if unresolved[key].version == dep.version then
               log.fatal "Circular dependencies detected: '#{name}@#{tostring data.version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring spec.version}'."
@@ -804,6 +814,34 @@ modules.hel = {
               log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
           @resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
       insert resolved, { :spec, pkg: data }
+    unresolved[#unresolved] = nil
+    resolved
+
+
+  -- Get all packages that depend on the given, and return a list of the dependent packages.
+  getPackageDependants: (name, resolved={}, unresolved={}) =>
+    insert unresolved, { :name }
+    manifest = loadManifest name
+    if manifest then
+      insert resolved, { :name, :manifest }
+      list = try listFiles DIST_PATH
+      for file in list
+        manifest = try loadManifest file
+        for dep in *manifest.dependencies do
+          if dep.name == name then
+            isResolved = false
+            for pkg in *resolved do
+              if pkg.name == file then
+                isResolved = true
+                break
+            if not isResolved then
+              for pkg in *unresolved do
+                if pkg.name == file then
+                  log.fatal "Circular dependencies detected: #{file}"
+              @getPackageDependants file, resolved, unresolved
+    else
+      log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
+
     unresolved[#unresolved] = nil
     resolved
 
@@ -821,6 +859,17 @@ modules.hel = {
       log.print "Installing '#{node.spec.name}@#{tostring node.pkg.version}'..."
       insert manifests, @rawInstall node.pkg, save
     manifests
+
+
+  -- Remove packages and its dependants
+  remove: (manifest, recursiveCall=false) =>
+    if recursiveCall
+      return modules.default\remove manifest
+    deps = @getPackageDependants manifest.name
+    for dep in *deps do
+      log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
+      try @remove dep.manifest, true
+    true
 }
 
 -- Local-install module
@@ -885,7 +934,7 @@ printPackageList = ->
     manifest = try loadManifest file
     log.print file .. (manifest.version and " @ " .. manifest.version or "")
     empty = false
-  log.print "No packages was installed." if empty
+  log.print "No packages installed." if empty
 
 
 -- App working -----------------------------------------------------------------
