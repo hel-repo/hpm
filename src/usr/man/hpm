@@ -1,23 +1,23 @@
 NAME
-  hpm - Hel Repository package manager
+  hpm - the Hel Repository package manager
 
 SYNOPSIS
   hpm COMMAND
 
 DESCRIPTION
-  Command-line package manager for OpenOS (OpenComputers). Allows to easily download and install programs from Hel Repository. Alternative app sources are supported: Pastebin, Gist, GitHub, direct links.
-  Also you can define your own way of package dustribution, via custom hpm modules.
+  Command-line package manager for OpenOS (OpenComputers). Allows to easily download and install programs from the Hel Repository. Alternative app sources are (planned to be) supported: Pastebin, Gist, GitHub, direct links.
+  Also you can define your own way of package distribution, via custom hpm modules.
 
   Available commands:
-  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
-  remove <package> [...]    Remove all package[s] files from the system.
+  install <package> [...]   Download package[s] and their dependencies from the Hel Repository, and install it to the system.
+  remove <package> [...]    Remove package[s] and their dependants from the system.
   save <package> [...]      Download package[s] without installation.
   list                      Show list of installed packages.
-  help                      Show this message. 
+  help                      Show help message.
 
   Available package formats:
-  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
-                            If there was no version specified, the last version will be installed.
+  [hel:]<name>[@<version>]  Package from the Hel Package Repository (default option).
+                            If no version specified, the last version will be installed.
   local:<path>              Get package from local file system.
   pastebin:<id>             Download source code from given Pastebin page.
   direct:<url>              Fetch file from <url>.
@@ -29,8 +29,8 @@ OPTIONS
     Verbose mode - show additional info.
 
 EXAMPLES
-  hpm install holo@0.70
-    This command will fetch, and then install into system Hologram Editor tool v0.70.
+  hpm install holo@0.7.0
+    This command will fetch and install the Hologram Editor tool, version 0.7.0, and all of its dependencies to the system.
 
   hpm remove holo
-    All Hologram Editor package files will be removed from system.
+    All Hologram Editor package files, including its dependants will be removed from system.
