@@ -41,4 +41,4 @@ Available package formats:
 ```
 
 ## Download
-You can find the last development build here, in the `/build` directory.
+Build the latest version using the `./build.sh` script. You'll need the `moonscript` package: `luarocks install moonscript`.
