@@ -674,10 +674,10 @@ removeManifest = (name) ->
 -- Omitted methods will be replaced with default implementations
 
 -- Default module
-modules.default = {
-  install: -> log.fatal "Incorrect source is provided! No default 'install' implementation."
+modules.default = class
+  @install: -> log.fatal "Incorrect source is provided! No default 'install' implementation."
 
-  remove: (manifest) =>
+  @remove: (manifest) =>
     if manifest
       if manifest.files
         for i, file in pairs(manifest.files)
@@ -688,16 +688,16 @@ modules.default = {
     else
       false, "Package can't be removed: the manifest is empty."
 
-  save: -> log.fatal "Incorrect source is provided! No default 'save' implementation."
-}
+  @save: -> log.fatal "Incorrect source is provided! No default 'save' implementation."
+
 
 -- Hel Repository module
-modules.hel = {
+modules.hel = class extends modules.default
   -- Repository API root url
-  URL: "http://hel-roottree.rhcloud.com/"
+  @URL: "https://hel-roottree.rhcloud.com/"
 
   -- Get package data from JSON, and return as a table
-  parsePackageJSON: (decoded, spec=semver.Spec "*") =>
+  @parsePackageJSON: (decoded, spec=semver.Spec "*") =>
     selectedVersion = nil
 
     versions = {}
@@ -727,9 +727,9 @@ modules.hel = {
     data
 
 
-  getPackageSpec: (name) =>
+  @getPackageSpec: (name) =>
     log.print "Downloading package data for #{name} ..."
-    status, response = download @URL .. "packages/" .. name
+    status, response = download @@URL .. "packages/" .. name
     log.fatal "HTTP request error: " .. response unless status
     jsonData = ""
     for chunk in response do jsonData ..= chunk
@@ -738,7 +738,7 @@ modules.hel = {
     decoded
 
 
-  rawInstall: (pkgData, save) =>
+  @rawInstall: (pkgData, save) =>
     prefix = if save then
       concat getWorkingDirectory!, pkgData.name
     else
@@ -783,17 +783,17 @@ modules.hel = {
 
 
   -- Save package locally
-  save: (name, version) =>
-    @install name, version, true
+  @save: (name, version) =>
+    @@install name, version, true
 
 
   -- Get an ordered list of packages for installation, resolving dependencies.
-  resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
+  @resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
     insert unresolved, { :name, version: "" }
     manifest = loadManifest name
     if not manifest or verSpec\match semver.Version(manifest.version) then
-      spec = @getPackageSpec name
-      data = @parsePackageJSON spec, verSpec
+      spec = @@getPackageSpec name
+      data = @@parsePackageJSON spec, verSpec
       unresolved[#unresolved].version = data.version
       for dep in *data.dependencies do
         isResolved = false
@@ -812,14 +812,14 @@ modules.hel = {
               log.fatal "Circular dependencies detected: '#{name}@#{tostring data.version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring spec.version}'."
             else
               log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
-          @resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
+          @@resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
       insert resolved, { :spec, pkg: data }
     unresolved[#unresolved] = nil
     resolved
 
 
   -- Get all packages that depend on the given, and return a list of the dependent packages.
-  getPackageDependants: (name, resolved={}, unresolved={}) =>
+  @getPackageDependants: (name, resolved={}, unresolved={}) =>
     insert unresolved, { :name }
     manifest = loadManifest name
     if manifest then
@@ -838,7 +838,7 @@ modules.hel = {
               for pkg in *unresolved do
                 if pkg.name == file then
                   log.fatal "Circular dependencies detected: #{file}"
-              @getPackageDependants file, resolved, unresolved
+              @@getPackageDependants file, resolved, unresolved
     else
       log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
 
@@ -847,34 +847,34 @@ modules.hel = {
 
 
   -- Get package from repository, then parse, and install
-  install: (name, specString="*", save) =>
+  @install: (name, specString="*", save) =>
     specString = "*" if empty(specString)
     log.print "Creating version specification for #{specString} ..."
     success, spec = pcall (() -> semver.Spec specString)
     log.fatal "Could not parse the version specification: #{spec}!" unless success
 
-    dependencyGraph = @resolveDependencies name, spec
+    dependencyGraph = @@resolveDependencies name, spec
     manifests = {}
     for node in *dependencyGraph do
       log.print "Installing '#{node.spec.name}@#{tostring node.pkg.version}'..."
-      insert manifests, @rawInstall node.pkg, save
+      insert manifests, @@rawInstall node.pkg, save
     manifests
 
 
   -- Remove packages and its dependants
-  remove: (manifest, recursiveCall=false) =>
+  @remove: (manifest, recursiveCall=false) =>
     if recursiveCall
-      return modules.default\remove manifest
-    deps = @getPackageDependants manifest.name
+      return super manifest
+    deps = @@getPackageDependants manifest.name
     for dep in *deps do
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
-      try @remove dep.manifest, true
+      try @@remove dep.manifest, true
     true
-}
+
 
 -- Local-install module
-modules.local = {
-  install: (path, version) =>
+modules.local = class extends modules.default
+  @install: (path, version) =>
     -- try to load data from local directory-package
     manifest = loadManifest path, concat path, "manifest"
     -- copy files to corresponding positions
@@ -885,7 +885,6 @@ modules.local = {
 
     log.print "Done."
     { manifest }
-}
 
 
 -- Commands implementation -----------------------------------------------------
