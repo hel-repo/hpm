@@ -512,6 +512,7 @@ semver = (() ->
 import isAvailable from require "component"
 import parse, getWorkingDirectory from require "shell"
 import exists, makeDirectory, concat, remove, copy, list from require "filesystem"
+fs = require "filesystem"
 import serialize, unserialize from require "serialization"
 
 import exit from os
@@ -526,13 +527,18 @@ listFiles = list
 options, args = {}, {}  -- command-line arguments
 request = nil           -- internet request method (call checkInternet to instantiate)
 modules = {}            -- distribution modules
+config = {}             -- configuration table (initialized by loadConfig)
+modulePath = "/etc/hpm/module/" -- there will be placed custom source modules
+distPath = "/etc/hpm/dist/"     -- there will be stored manifests of installed packages
 
 -- Constants
-DIST_PATH = "/etc/hpm/dist/"     -- there will be stored manifests of installed packages
-MODULE_PATH = "/etc/hpm/module/" -- there will be placed custom source modules
-USAGE = "Usage: hpm [-vq] <command>
+CONFIG_PATH = "/etc/hpm/hpm.cfg" -- the path to default hpm configuration file
+USAGE = "Usage: hpm [-vq] <options> <command>
   -q: Quiet mode - no console output.
   -v: Verbose mode - show additional info.
+
+ --c, --config:
+      Path to hpm config file.
 
 Available commands:
   install <package> [...]   Download package[s] from the Hel Repository, and install it to the system.
@@ -546,6 +552,23 @@ Available package formats:
   local:<path>              Get package from local file system.
   pastebin:<name>@<id>      Download source code from given Pastebin page.
   direct:<name>@<url>       Fetch file from <url>."
+
+DEFAULT_CONFIG = [[
+-- A directory where package manifests will be placed.
+-- It will be created if it doesn't exist.
+dist = "/etc/hpm/dist"
+
+-- A place where to search for custom hpm modules.
+-- It will be created if it doesn't exist.
+modules = "/etc/hpm/module"
+
+-- Settings related to the hel module
+hel = {}
+
+-- If set to `false`, hpm will *only* remove a package
+-- that hpm is told to remove. Otherwise, all of its
+-- dependants will be also removed.
+hel.remove_dependants = true]]
 
 
 -- Logging functions -----------------------------------------------------------
@@ -587,6 +610,48 @@ empty = (str) -> not str or #str < 1
 parsePackageName = (value) ->
   value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
 
+loadConfig = ->
+  path = options.c or options.config or CONFIG_PATH
+  if not exists path then
+    dirPath = fs.path path
+    if not exists dirPath then
+      result, reason = makeDirectory path
+      if not result then
+        return false, "Failed to create '#{dirPath}' directory for the config file: #{reason}"
+    file, reason = io.open path, "w"
+    if file then
+      file\write DEFAULT_CONFIG
+      file\close!
+    else
+      return false, "Failed to open config file for writing: #{reason}"
+  file, reason = io.open path, "r"
+  if file then
+    content = file\read "*all"
+    file\close!
+    globals = {}
+    (load content, "config", "t", globals)!
+    newUndecl = (base={}) ->
+      setmetatable base, {
+        __index: {
+          get: (k, v, createNewUndecl) ->
+            if type(base[k]) != "nil" then
+              if type(base[k]) == "table" then
+                return newUndecl base[k]
+              return base[k]
+            log.error "Attempt to access undeclared config field '#{k}'!"
+            if not createNewUndecl
+              v
+            else
+              newUndecl v
+        }
+      }
+    config = newUndecl globals
+    modulePath = config.get "modules", modulePath
+    distPath = config.get "dist", distPath
+    config
+  else
+    return false, "Failed to open config file for reading: #{reason}"
+
 -- Check for internet availability
 checkInternet = ->
   log.fatal "This command requires an internet card to run!" unless isAvailable "internet"
@@ -599,14 +664,14 @@ download = (url) ->
 
 -- Load available modules
 loadCustomModules = ->
-  if not exists MODULE_PATH
-    result, reason = makeDirectory MODULE_PATH
+  if not exists modulePath
+    result, reason = makeDirectory modulePath
     if not result
-      return false, "Failed to create '#{MODULE_PATH}' directory for custom modules: #{reason}"
-  list = try listFiles MODULE_PATH
+      return false, "Failed to create '#{modulePath}' directory for custom modules: #{reason}"
+  list = try listFiles modulePath
   for file in list
     name = file\match("^(.+)%..+$")
-    mod = dofile concat MODULE_PATH, file
+    mod = dofile concat modulePath, file
     modules[name] = mod if mod
   true
 
@@ -626,7 +691,7 @@ saveManifest = (manifest, path, name) ->
   if not manifest
     return false, "'nil' given"
 
-  path = path or DIST_PATH
+  path = path or distPath
   name = name or manifest.name
   if not exists path
     result, reason = makeDirectory path
@@ -643,19 +708,19 @@ saveManifest = (manifest, path, name) ->
 
 -- Read package manifest from file
 loadManifest = (name, path) ->
-  path = path or concat DIST_PATH, name
+  path = path or concat distPath, name
   if exists path
     file, reason = io.open path, "rb"
     if file
       manifest = unserialize file\read "*all"
       file\close!
       manifest
-    else false, "Failed to open manifest for '#{name }' package: #{reason}"
+    else false, "Failed to open manifest for '#{name}' package: #{reason}"
   else false, "No manifest found for '#{name}' package"
 
 -- Delete manifest file
 removeManifest = (name) ->
-  path = concat DIST_PATH, name
+  path = concat distPath, name
   if exists path then remove path
   else false, "No manifest found for '#{name}' package"
 
@@ -824,7 +889,7 @@ modules.hel = class extends modules.default
     manifest = loadManifest name
     if manifest then
       insert resolved, { :name, :manifest }
-      list = try listFiles DIST_PATH
+      list = try listFiles distPath
       for file in list
         manifest = try loadManifest file
         for dep in *manifest.dependencies do
@@ -865,7 +930,12 @@ modules.hel = class extends modules.default
   @remove: (manifest, recursiveCall=false) =>
     if recursiveCall
       return super manifest
-    deps = @@getPackageDependants manifest.name
+    deps = if not config.get("hel", {}, true).get "remove_dependants", true then
+      {
+        { name: manifest.name, :manifest }
+      }
+    else
+      @@getPackageDependants manifest.name
     for dep in *deps do
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
       try @@remove dep.manifest, true
@@ -927,7 +997,7 @@ savePackage = (source, name, meta) ->
     log.error "Couldn't install package: #{reason}."
 
 printPackageList = ->
-  list = try listFiles DIST_PATH
+  list = try listFiles distPath
   empty = true
   for file in list
     manifest = try loadManifest file
@@ -962,6 +1032,7 @@ process = ->
 
 -- Run!
 parseArguments ...
+try loadConfig!
 loadCustomModules!
 process!
 0
