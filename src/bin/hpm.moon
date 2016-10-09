@@ -275,7 +275,7 @@ semver = (() ->
 
       makeOptional = (origCmpFun) ->
         altCmpFun = (a, b) ->
-          if a == nil and b == nil
+          if a == nil or b == nil
             0
           else
             origCmpFun(a, b)
@@ -354,8 +354,8 @@ semver = (() ->
       [@@KIND_EMPTY]: @@KIND_EQUAL
     }
 
-    @reSpec: (s) ->
-      chr, v = s\match '^(.*)(%d.*)$'
+    @reSpec: (s) =>
+      chr, v = s\match '^(.-)(%d.*)$'
       if not (
           chr == '<' or
           chr == '<=' or
@@ -417,7 +417,7 @@ semver = (() ->
           error "Unexpected match kind: #{@kind}"
 
     __tostring: =>
-      @kind .. @spec
+      "#{@kind}#{@spec}"
 
     __eq: (other) =>
       @kind == other.kind and @spec == other.spec
@@ -546,6 +546,10 @@ Available commands:
   save <package> [...]      Download package[s] without installation to the current directory.
   list                      Show list of installed packages.
   help                      Show this message.
+
+Command-specific options:
+  install
+   -r: install the package even if it exists (remove first).
 
 Available package formats:
   [hel:]<name>[@<version>]  Package from the Hel Package Repository (default option).
@@ -915,7 +919,7 @@ modules.hel = class extends modules.default
   @install: (name, specString="*", save) =>
     specString = "*" if empty(specString)
     log.print "Creating version specification for #{specString} ..."
-    success, spec = pcall (() -> semver.Spec specString)
+    success, spec = pcall -> semver.Spec specString
     log.fatal "Could not parse the version specification: #{spec}!" unless success
 
     dependencyGraph = @@resolveDependencies name, spec
@@ -969,7 +973,12 @@ installPackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
   -- Check if this package was already installed
   manifest, reason = loadManifest name
-  removePackage source, name if manifest
+  if manifest then
+    if not options.r then
+      log.print "'#{name}' is already installed, skipping..."
+      return
+    else
+      removePackage source, name
   -- Install
   result, reason = callModuleMethod getModuleBy(source), "install", name, meta
   if result then
@@ -988,7 +997,7 @@ savePackage = (source, name, meta) ->
   result, reason = callModuleMethod getModuleBy(source), "save", name, meta
   if result then
     for manifest in *result do
-      success, reason = saveManifest result, "./#{manifest.name}/", "manifest"
+      success, reason = saveManifest manifest, "./#{manifest.name}/", "manifest"
       if success
         log.info "Saved the manifest for local '#{name}' package."
       else
