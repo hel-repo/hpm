@@ -615,7 +615,7 @@ loadConfig = ->
   if not exists path then
     dirPath = fs.path path
     if not exists dirPath then
-      result, reason = makeDirectory path
+      result, reason = makeDirectory dirPath
       if not result then
         return false, "Failed to create '#{dirPath}' directory for the config file: #{reason}"
     file, reason = io.open path, "w"
