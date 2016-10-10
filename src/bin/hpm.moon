@@ -110,21 +110,23 @@ semver = (() ->
 
     next_major: =>
       if @prerelease and @minor == 0 and @patch == 0
-        Version concat {tostring x for x in {@major, @minor, @patch}}, '.'
+        Version concat [tostring x for x in *{@major, @minor, @patch}], '.'
       else
-        Version concat {tostring x for x in {@major + 1, 0, 0}}, '.'
+        Version concat [tostring x for x in *{@major + 1, 0, 0}], '.'
 
     next_minor: =>
+      error "Partial version doesn't contain the minor component!" unless @minor
       if @prerelease and @patch == 0
-        Version concat {tostring x for x in {@major, @minor, @patch}}, '.'
+        Version concat [tostring x for x in *{@major, @minor, @patch}], '.'
       else
-        Version concat {tostring x for x in {@major, @minor + 1, 0}}, '.'
+        Version concat [tostring x for x in *{@major, @minor + 1, 0}], '.'
 
     next_patch: =>
+      error "Partial version doesn't contain the patch component!" unless @patch
       if @prerelease
-        Version concat {tostring x for x in {@major, @minor, @patch}}, '.'
+        Version concat [tostring x for x in *{@major, @minor, @patch}], '.'
       else
-        Version concat {tostring x for x in {@major, @minor, @patch + 1}}, '.'
+        Version concat [tostring x for x in *{@major, @minor, @patch + 1}], '.'
 
     coerce: (versionString, partial=false) =>
       baseRe = (s) ->
@@ -476,7 +478,7 @@ semver = (() ->
       ipairs @specs
 
     __tostring: =>
-      concat {tostring spec for spec in *@specs}, ','
+      concat [tostring spec for spec in *@specs], ','
 
     __eq: (other) =>
       for selfSpec in *@specs
@@ -517,7 +519,7 @@ import serialize, unserialize from require "serialization"
 
 import exit from os
 import write, stderr from io
-import insert from table
+import insert, unpack from table
 
 
 -- Rename some imports
@@ -596,6 +598,20 @@ printUsage = ->
 try = (result, reason) ->
   log.fatal reason unless result
   result
+
+
+-- Argument type-checking ------------------------------------------------------
+
+-- v -- value, c -- converted, t -- type
+checkType = (v, t, c) ->
+  log.fatal "Value '#{v}' is #{type c}, however, a #{t} is excepted." unless type v == t
+  c
+
+argNumber = (v) ->
+  checkType v, "number", tonumber v
+
+argString = (v) ->
+  checkType v, "string", tostring v
 
 
 -- Helper methods --------------------------------------------------------------
@@ -678,6 +694,36 @@ loadCustomModules = ->
     mod = dofile concat modulePath, file
     modules[name] = mod if mod
   true
+
+findCustomCommand = (name) ->
+  command = name
+  mod = if p1 = name\find ':'
+    command = name\sub p1 + 1
+    name\sub 1, p1 - 1
+  if not mod
+    candidates = {}
+    for modName, mod in pairs modules
+      if mod[command]
+        insert candidates, { module: modName, method: mod[command] }
+    if #candidates > 1
+      log.print "Ambiguous choice: method #{command} is implemented in the following modules:"
+      for mod in *candidates
+        log.print " * #{mod.module}"
+      log.print "Choose a specific module by prepending its name with a colon, e.g., #{candidates[1].module}:#{command}."
+      false
+    elseif #candidates == 0
+      log.error "Unknown command: #{command}"
+      false
+    else
+      mod = candidates[1].module
+      log.info "Note, using #{mod}:#{command}."
+      candidates[1]\method
+  else
+    if not modules[mod][command]
+      log.error "Unknown command: #{mod}:#{command}"
+      false
+    else
+      (...) -> modules[mod][command] modules[mod], ...
 
 -- Try to find module corresponding to the 'source' string
 getModuleBy = (source) ->
@@ -776,7 +822,8 @@ modules.hel = class extends modules.default
       log.fatal "Could not parse the version in package: #{v}" unless v
       versions[v] = data
 
-    bestMatch = spec\select [version for version, data in pairs versions]
+    success, bestMatch = pcall -> spec\select [version for version, data in pairs versions]
+    log.fatal "Could not select the best version: #{bestMatch}" unless success
     selectedVersion = tostring bestMatch
 
     log.fatal "No candidate for version specification '#{spec}' found!" unless bestMatch
@@ -860,7 +907,7 @@ modules.hel = class extends modules.default
   @resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
     insert unresolved, { :name, version: "" }
     manifest = loadManifest name
-    if not manifest or verSpec\match semver.Version(manifest.version) then
+    if not manifest or not verSpec\match semver.Version(manifest.version) then
       spec = @@getPackageSpec name
       data = @@parsePackageJSON spec, verSpec
       unresolved[#unresolved].version = data.version
@@ -882,7 +929,9 @@ modules.hel = class extends modules.default
             else
               log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
           @@resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
-      insert resolved, { :spec, pkg: data }
+      insert resolved, { pkg: data }
+    else
+      insert resolved, { pkg: manifest }
     unresolved[#unresolved] = nil
     resolved
 
@@ -925,7 +974,7 @@ modules.hel = class extends modules.default
     dependencyGraph = @@resolveDependencies name, spec
     manifests = {}
     for node in *dependencyGraph do
-      log.print "Installing '#{node.spec.name}@#{tostring node.pkg.version}'..."
+      log.print "Installing '#{node.pkg.name}@#{tostring node.pkg.version}'..."
       insert manifests, @@rawInstall node.pkg, save
     manifests
 
@@ -1036,8 +1085,11 @@ process = ->
       for i = 2, #args do removePackage parsePackageName args[i]
     when "list"
       printPackageList!
-    else
+    when "help"
       printUsage!
+    else
+      if cmd = findCustomCommand args[1]
+        cmd unpack [x for x in *args[2,]]
 
 -- Run!
 parseArguments ...
