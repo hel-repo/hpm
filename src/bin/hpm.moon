@@ -580,11 +580,11 @@ hel.remove_dependants = true]]
 -- Logging functions -----------------------------------------------------------
 
 log =
-  info: (message) -> print message if options.v
-  print: (message) -> print message unless options.q
-  error: (message) -> stderr\write message .. '\n' unless options.q
-  fatal: (message) ->
-    stderr\write message .. '\n' unless options.q
+  info: (...) -> print table.concat [tostring x for x in *{...}], "\t" if options.v
+  print: (...) -> print table.concat [tostring x for x in *{...}], "\t" unless options.q
+  error: (...) -> stderr\write table.concat([tostring x for x in *{...}], "\t") .. '\n' unless options.q
+  fatal: (...) ->
+    stderr\write table.concat([tostring x for x in *{...}], "\t") .. '\n' unless options.q
     exit 1
 
 assert = (statement, message) -> log.fatal message unless statement
@@ -704,7 +704,8 @@ findCustomCommand = (name) ->
     candidates = {}
     for modName, mod in pairs modules
       if mod[command]
-        insert candidates, { module: modName, method: mod[command] }
+        if type(mod[command]) == "table" and mod[command].__public == true
+          insert candidates, { module: modName, method: mod[command] }
     if #candidates > 1
       log.print "Ambiguous choice: method #{command} is implemented in the following modules:"
       for mod in *candidates
@@ -717,13 +718,13 @@ findCustomCommand = (name) ->
     else
       mod = candidates[1].module
       log.info "Note, using #{mod}:#{command}."
-      candidates[1]\method
+      (...) -> candidates[1].method ...
   else
-    if not modules[mod][command]
+    if not modules[mod] or not modules[mod][command] or modules[mod][command] and (type(modules[mod][command]) != "table" or modules[mod][command].__public != true)
       log.error "Unknown command: #{mod}:#{command}"
       false
     else
-      (...) -> modules[mod][command] modules[mod], ...
+      (...) -> modules[mod][command] ...
 
 -- Try to find module corresponding to the 'source' string
 getModuleBy = (source) ->
@@ -773,6 +774,13 @@ removeManifest = (name) ->
   path = concat distPath, name
   if exists path then remove path
   else false, "No manifest found for '#{name}' package"
+
+public = (func) ->
+  setmetatable {
+    __public: true
+  }, {
+    __call: func
+  }
 
 
 -- Distribution modules --------------------------------------------------------
