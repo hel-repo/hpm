@@ -513,7 +513,7 @@ semver = (() ->
 
 import isAvailable from require "component"
 import parse, getWorkingDirectory from require "shell"
-import exists, makeDirectory, concat, remove, copy, list from require "filesystem"
+import isDirectory, exists, makeDirectory, concat, remove, copy, list from require "filesystem"
 fs = require "filesystem"
 import serialize, unserialize from require "serialization"
 
@@ -530,8 +530,9 @@ options, args = {}, {}  -- command-line arguments
 request = nil           -- internet request method (call checkInternet to instantiate)
 modules = {}            -- distribution modules
 config = {}             -- configuration table (initialized by loadConfig)
-modulePath = "/etc/hpm/module/" -- there will be placed custom source modules
-distPath = "/etc/hpm/dist/"     -- there will be stored manifests of installed packages
+modulePath = "/etc/hpm/module/" -- custom source modules
+distPath = "/etc/hpm/dist/"     -- manifests of installed packages
+exitCode = 0
 
 -- Constants
 CONFIG_PATH = "/etc/hpm/hpm.cfg" -- the path to default hpm configuration file
@@ -560,6 +561,7 @@ Available package formats:
   direct:<name>@<url>       Fetch file from <url>."
 
 DEFAULT_CONFIG = [[
+-- << Global settings >> -------------------------------------------------------
 -- A directory where package manifests will be placed.
 -- It will be created if it doesn't exist.
 dist = "/etc/hpm/dist"
@@ -568,13 +570,18 @@ dist = "/etc/hpm/dist"
 -- It will be created if it doesn't exist.
 modules = "/etc/hpm/module"
 
--- Settings related to the hel module
+-- << Settings related to the hel module >> ------------------------------------
 hel = {}
 
--- If set to `false`, hpm will *only* remove a package
--- that hpm is told to remove. Otherwise, all of its
--- dependants will be also removed.
-hel.remove_dependants = true]]
+-- If set to `false`, hpm will *only* remove a package that hpm is told to
+-- remove. Otherwise, all of its dependants will be also removed.
+hel.remove_dependants = true
+
+-- << Settings related to the oppm module >> -----------------------------------
+oppm = {}
+
+-- A directory where package manifests will be stored for faster access.
+oppm.cache_directory = "/var/cache/hpm/oppm"]]
 
 
 -- Logging functions -----------------------------------------------------------
@@ -582,7 +589,9 @@ hel.remove_dependants = true]]
 log =
   info: (...) -> print table.concat [tostring x for x in *{...}], "\t" if options.v
   print: (...) -> print table.concat [tostring x for x in *{...}], "\t" unless options.q
-  error: (...) -> stderr\write table.concat([tostring x for x in *{...}], "\t") .. '\n' unless options.q
+  error: (...) ->
+    exitCode = 2
+    stderr\write table.concat([tostring x for x in *{...}], "\t") .. '\n' unless options.q
   fatal: (...) ->
     stderr\write table.concat([tostring x for x in *{...}], "\t") .. '\n' unless options.q
     exit 1
@@ -607,11 +616,9 @@ checkType = (v, t, c) ->
   log.fatal "Value '#{v}' is #{type c}, however, a #{t} is excepted." unless type v == t
   c
 
-argNumber = (v) ->
-  checkType v, "number", tonumber v
+argNumber = (v) -> checkType v, "number", tonumber v
 
-argString = (v) ->
-  checkType v, "string", tostring v
+argString = (v) -> checkType v, "string", tostring v
 
 
 -- Helper methods --------------------------------------------------------------
@@ -626,15 +633,28 @@ isin = (v, tbl) ->
 -- Check if given string contains something useful
 empty = (str) -> not str or #str < 1
 
+-- More specific fs.exist versions
+existsDir = (path) -> exists(path) and isDirectory path
+existsFile = (path) -> exists(path) and not isDirectory path
+
+-- Returns "s" if amount differs from 1, "" otherwise
+plural = (amount) -> amount == 1 and "" or "s"
+
+-- The inverted version of the function above
+singular = (amount) -> amount != 1 and "" or "s"
+
+-- Choose between "are" and "is" depending on the given amount
+linkingVerb = (amount) -> amount == 1 and "is" or "are"
+
 -- Return (source, name, meta) from "[<source>:]<name>[@<meta>]" string
 parsePackageName = (value) ->
   value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
 
 loadConfig = ->
   path = options.c or options.config or CONFIG_PATH
-  if not exists path then
+  if not existsFile path then
     dirPath = fs.path path
-    if not exists dirPath then
+    if not existsDir dirPath then
       result, reason = makeDirectory dirPath
       if not result then
         return false, "Failed to create '#{dirPath}' directory for the config file: #{reason}"
@@ -677,14 +697,14 @@ checkInternet = ->
   log.fatal "This command requires an internet card to run!" unless isAvailable "internet"
   request = request or require("internet").request
 
--- Return download stream, for something
+-- Return download stream
 download = (url) ->
   checkInternet!
   pcall request, url
 
 -- Load available modules
 loadCustomModules = ->
-  if not exists modulePath
+  if not existsDir modulePath
     result, reason = makeDirectory modulePath
     if not result
       return false, "Failed to create '#{modulePath}' directory for custom modules: #{reason}"
@@ -705,7 +725,7 @@ findCustomCommand = (name) ->
     for modName, mod in pairs modules
       if mod[command]
         if type(mod[command]) == "table" and mod[command].__public == true
-          insert candidates, { module: modName, method: mod[command] }
+          insert candidates, { class: mod, module: modName, method: mod[command] }
     if #candidates > 1
       log.print "Ambiguous choice: method #{command} is implemented in the following modules:"
       for mod in *candidates
@@ -718,13 +738,13 @@ findCustomCommand = (name) ->
     else
       mod = candidates[1].module
       log.info "Note, using #{mod}:#{command}."
-      (...) -> candidates[1].method ...
+      (...) -> candidates[1].method candidates[1].class, ...
   else
     if not modules[mod] or not modules[mod][command] or modules[mod][command] and (type(modules[mod][command]) != "table" or modules[mod][command].__public != true)
       log.error "Unknown command: #{mod}:#{command}"
       false
     else
-      (...) -> modules[mod][command] ...
+      (...) -> modules[mod][command] modules[mod], ...
 
 -- Try to find module corresponding to the 'source' string
 getModuleBy = (source) ->
@@ -744,7 +764,7 @@ saveManifest = (manifest, path, name) ->
 
   path = path or distPath
   name = name or manifest.name
-  if not exists path
+  if not existsDir path
     result, reason = makeDirectory path
     if not result
       return false, "Failed to create '#{path}' directory for manifest files: #{reason}"
@@ -760,7 +780,7 @@ saveManifest = (manifest, path, name) ->
 -- Read package manifest from file
 loadManifest = (name, path) ->
   path = path or concat distPath, name
-  if exists path
+  if existsFile path
     file, reason = io.open path, "rb"
     if file
       manifest = unserialize file\read "*all"
@@ -772,14 +792,14 @@ loadManifest = (name, path) ->
 -- Delete manifest file
 removeManifest = (name) ->
   path = concat distPath, name
-  if exists path then remove path
+  if existsFile path then remove path
   else false, "No manifest found for '#{name}' package"
 
 public = (func) ->
   setmetatable {
     __public: true
   }, {
-    __call: func
+    __call: (self, ...) -> func ...
   }
 
 
@@ -853,7 +873,7 @@ modules.hel = class extends modules.default
 
   @getPackageSpec: (name) =>
     log.print "Downloading package data for #{name} ..."
-    status, response = download @@URL .. "packages/" .. name
+    status, response = download @URL .. "packages/" .. name
     log.fatal "HTTP request error: " .. response unless status
     jsonData = ""
     for chunk in response do jsonData ..= chunk
@@ -868,7 +888,7 @@ modules.hel = class extends modules.default
     else
       "/"
 
-    if save and not exists prefix
+    if save and not existsDir prefix
       result, response = makeDirectory prefix
       log.fatal "Failed creating '#{prefix}' directory for package '#{pkgData.name}'! \n#{response}" unless result
     elseif not save
@@ -887,7 +907,7 @@ modules.hel = class extends modules.default
         log.print "Fetching '#{file.name}' ..."
 
         path = prefix .. file.dir
-        if not exists path
+        if not existsDir path
           result, response = makeDirectory path
           print path
           log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
@@ -908,7 +928,7 @@ modules.hel = class extends modules.default
 
   -- Save package locally
   @save: (name, version) =>
-    @@install name, version, true
+    @install name, version, true
 
 
   -- Get an ordered list of packages for installation, resolving dependencies.
@@ -916,8 +936,8 @@ modules.hel = class extends modules.default
     insert unresolved, { :name, version: "" }
     manifest = loadManifest name
     if not manifest or not verSpec\match semver.Version(manifest.version) then
-      spec = @@getPackageSpec name
-      data = @@parsePackageJSON spec, verSpec
+      spec = @getPackageSpec name
+      data = @parsePackageJSON spec, verSpec
       unresolved[#unresolved].version = data.version
       for dep in *data.dependencies do
         isResolved = false
@@ -936,7 +956,7 @@ modules.hel = class extends modules.default
               log.fatal "Circular dependencies detected: '#{name}@#{tostring data.version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring spec.version}'."
             else
               log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
-          @@resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
+          @resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
       insert resolved, { pkg: data }
     else
       insert resolved, { pkg: manifest }
@@ -964,7 +984,7 @@ modules.hel = class extends modules.default
               for pkg in *unresolved do
                 if pkg.name == file then
                   log.fatal "Circular dependencies detected: #{file}"
-              @@getPackageDependants file, resolved, unresolved
+              @getPackageDependants file, resolved, unresolved
     else
       log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
 
@@ -979,11 +999,11 @@ modules.hel = class extends modules.default
     success, spec = pcall -> semver.Spec specString
     log.fatal "Could not parse the version specification: #{spec}!" unless success
 
-    dependencyGraph = @@resolveDependencies name, spec
+    dependencyGraph = @resolveDependencies name, spec
     manifests = {}
     for node in *dependencyGraph do
       log.print "Installing '#{node.pkg.name}@#{tostring node.pkg.version}'..."
-      insert manifests, @@rawInstall node.pkg, save
+      insert manifests, @rawInstall node.pkg, save
     manifests
 
 
@@ -991,16 +1011,129 @@ modules.hel = class extends modules.default
   @remove: (manifest, recursiveCall=false) =>
     if recursiveCall
       return super manifest
-    deps = if not config.get("hel", {}, true).get "remove_dependants", true then
+    deps = if not config.get("hel", {}, true).get("remove_dependants", true) then
       {
         { name: manifest.name, :manifest }
       }
     else
-      @@getPackageDependants manifest.name
+      @getPackageDependants manifest.name
     for dep in *deps do
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
-      try @@remove dep.manifest, true
+      try @remove dep.manifest, true
     true
+
+
+modules.oppm = class extends modules.default
+
+  @REPOS: "https://raw.githubusercontent.com/OpenPrograms/openprograms.github.io/master/repos.cfg"
+  @PACKAGES: "https://raw.githubusercontent.com/%s/master/programs.cfg"
+  @FILES: "https://raw.githubusercontent.com/%s/master/%s"
+  @DEFAULT_CACHE_DIRECTORY = "/var/cache/hpm/oppm"
+
+  @cacheDirectory: =>
+    dir = config.get("oppm", {}, true).get("cache_directory", @DEFAULT_CACHE_DIRECTORY)
+    unless existsDir dir
+      result, reason = makeDirectory dir
+      log.fatal "Could not create the cache directory at #{dir}: #{reason}" unless result
+    dir
+
+  @listCache: =>
+    list = {}
+    cacheDir = @cacheDirectory!
+    dirs = try listFiles cacheDir
+    for dir in dirs
+      if isDirectory concat cacheDir, dir
+        subdirs = try listFiles concat cacheDir, dir
+        for subdir in subdirs
+          if isDirectory concat cacheDir, dir, subdir
+            pkgs = try listFiles concat cacheDir, dir, subdir
+            for pkg in pkgs
+              fullPath = concat cacheDir, dir, subdir, pkg
+              unless isDirectory fullPath
+                local data
+                with file, reason = io.open fullPath, "r"
+                  return false, "Could not open '#{fullPath}' for reading: #{reason}" if not file
+                  all = \read "*all"
+                  data = unserialize all
+                  \close!
+                repo = concat dir, subdir
+                insert list, { :repo, :pkg, :data }
+    list
+
+  @clearCache: =>
+    list = @listCache!
+    unimplemented "clearCache"
+    
+
+  @updateCache: =>
+    cacheDir = @cacheDirectory!
+    oldFiles = try @listCache!
+    result, response, reason = download @REPOS
+    return false, "Could not fetch #{@REPOS}: #{reason}" unless result and response
+    repos = unserialize table.concat [x for x in response when x], ""
+    programs = {}
+    for repo, repoData in pairs repos
+      if repoData.repo
+        log.info "Fetching '#{repo}' at '#{repoData.repo}' ..."
+        result, response, reason = download @PACKAGES\format repoData.repo
+        unless result and response
+          log.error "Could not fetch '#{repo}' at '#{repoData.repo}': #{reason}"
+          continue
+        data = ""
+        for result, chunk in -> pcall response
+          if not result
+            log.error "Could not fetch '#{repo}' at '#{repoData.repo}': #{chunk}"
+            data = ""
+            break
+          else
+            break if not chunk
+            data ..= chunk
+        continue if empty data
+        repoPrograms = unserialize data
+        for prg, prgData in pairs repoPrograms
+          if prg\match "[^A-Za-z0-9._-]"
+            log.error "Package name contains illegal characters: #{repo}:#{prg}!"
+            continue
+          insert programs, { repo: repoData.repo, name: prg, data: prgData }
+    newFiles = {}
+    for { :name, :repo, :data } in *programs
+      if isin name, newFiles
+        log.error "There're multiple packages under the same name: #{name}!"
+      unless existsDir concat cacheDir, repo
+        result, reason = makeDirectory concat cacheDir, repo
+        return false, "Could not create directory '#{concat cacheDir, repo}': #{reason}" unless result
+      file, reason = io.open concat(cacheDir, repo, name), "w"
+      return false, "Could not open '#{concat cacheDir, repo, name}' for writing: #{reason}" unless file
+      with file
+        \write serialize { :name, :repo, :data }
+        \close!
+      local k
+      do
+        for key, v in pairs oldFiles
+          if v.repo == repo and v.pkg == name
+            k = key
+            break
+      if k
+        oldFiles[k] = nil
+      else
+        insert newFiles, name
+    log.print "Removing old cache files ..."
+    for name in *oldFiles
+      remove concat cacheDir, name
+    log.print "- #{#programs} program#{plural #programs} cached."
+    log.print "- #{#newFiles} package#{plural #newFiles} #{linkingVerb #newFiles} new."
+    log.print "- #{#oldFiles} package#{plural #oldFiles} no longer exist#{singular #oldFiles}."
+    true
+
+  @cache: public (command, ...) =>
+    switch command
+      when "update"
+        log.print "Updating OpenPrograms program cache ..."
+        try @updateCache!
+        log.print "Done."
+      else
+        log.error "Unknown command."
+        log.print "Usage: hpm oppm:cache {update}"
 
 
 -- Local-install module
@@ -1104,4 +1237,4 @@ parseArguments ...
 try loadConfig!
 loadCustomModules!
 process!
-0
+exitCode
