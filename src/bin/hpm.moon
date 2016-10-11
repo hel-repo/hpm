@@ -1042,6 +1042,7 @@ modules.oppm = class extends modules.default
   @REPOS: "https://raw.githubusercontent.com/OpenPrograms/openprograms.github.io/master/repos.cfg"
   @PACKAGES: "https://raw.githubusercontent.com/%s/master/programs.cfg"
   @FILES: "https://raw.githubusercontent.com/%s/master/%s"
+  @DIRECTORY: "https://api.github.com/repos/%s/contents/%s?ref=%s"
   @DEFAULT_CACHE_DIRECTORY = "/var/cache/hpm/oppm"
 
   @cacheDirectory: =>
@@ -1095,6 +1096,14 @@ modules.oppm = class extends modules.default
               remove pathPkg if removePkg
           remove pathSubdir if removeSubdir
       remove pathDir if removeDir
+    true
+
+  @resolveDirectory: (repo, branch, path) =>
+    result, response, reason = download @DIRECTORY\format repo, path, branch
+    return false, "Could not fetch #{repo}:#{branch}/#{path}: #{reason}" unless result and response
+    data = json\decode table.concat [x for x in response when x], ""
+    return false, "Could not fetch #{repo}:#{branch}/#{path}: #{data.message}" if data.message
+    [{ url: file.download_url, path: file.path } for file in *data]
 
   @updateCache: =>
     cacheDir = @cacheDirectory!
@@ -1163,6 +1172,10 @@ modules.oppm = class extends modules.default
       when "update"
         log.print "Updating OpenPrograms program cache ..."
         try @updateCache!
+        log.print "Done."
+      when "fix"
+        log.print "Fixing OpenPrograms program cache ..."
+        try @fixCache!
         log.print "Done."
       else
         log.error "Unknown command."
