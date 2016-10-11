@@ -513,7 +513,8 @@ semver = (() ->
 
 import isAvailable from require "component"
 import parse, getWorkingDirectory from require "shell"
-import isDirectory, exists, makeDirectory, concat, remove, copy, list from require "filesystem"
+shell = require "shell"
+import isDirectory, exists, makeDirectory, concat, copy from require "filesystem"
 fs = require "filesystem"
 import serialize, unserialize from require "serialization"
 
@@ -523,7 +524,7 @@ import insert, unpack from table
 
 
 -- Rename some imports
-listFiles = list
+listFiles = fs.list
 
 -- Variables
 options, args = {}, {}  -- command-line arguments
@@ -649,6 +650,19 @@ linkingVerb = (amount) -> amount == 1 and "is" or "are"
 -- Return (source, name, meta) from "[<source>:]<name>[@<meta>]" string
 parsePackageName = (value) ->
   value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
+
+-- Recursive remove
+remove = (path) ->
+  if not exists(path) or fs.get(shell.resolve(path)).isReadOnly()
+    log.error "Could not remove '#{path}': the path is readonly!"
+    false
+  else
+    unless isDirectory(path) or fs.isLink path
+      fs.remove path
+    else
+      for file in try listFiles path
+        remove concat path, file
+      fs.remove path
 
 loadConfig = ->
   path = options.c or options.config or CONFIG_PATH
@@ -1057,13 +1071,30 @@ modules.oppm = class extends modules.default
                   data = unserialize all
                   \close!
                 repo = concat dir, subdir
-                insert list, { :repo, :pkg, :data }
+                insert list, { path: fullPath, :repo, :pkg, :data }
     list
 
-  @clearCache: =>
-    list = @listCache!
-    unimplemented "clearCache"
-    
+  @fixCache: =>
+    cacheDir = @cacheDirectory!
+    dirs = try listFiles cacheDir
+    for dir in dirs
+      removeDir = true
+      pathDir = concat cacheDir, dir
+      if isDirectory pathDir
+        subdirs = try listFiles pathDir
+        for subdir in subdirs
+          removeSubdir = true
+          pathSubdir = concat pathDir, subdir
+          if isDirectory pathSubdir
+            pkgs = try listFiles pathSubdir
+            for pkg in pkgs
+              removePkg = true
+              pathPkg = concat pathSubdir, pkg
+              unless isDirectory pathPkg
+                removePkg, removeSubdir, removeDir = false, false, false
+              remove pathPkg if removePkg
+          remove pathSubdir if removeSubdir
+      remove pathDir if removeDir
 
   @updateCache: =>
     cacheDir = @cacheDirectory!
@@ -1118,8 +1149,10 @@ modules.oppm = class extends modules.default
       else
         insert newFiles, name
     log.print "Removing old cache files ..."
-    for name in *oldFiles
-      remove concat cacheDir, name
+    for { :fullPath } in *oldFiles
+      remove fullPath
+    log.print "Fixing bad cache nodes ..."
+    @fixCache!
     log.print "- #{#programs} program#{plural #programs} cached."
     log.print "- #{#newFiles} package#{plural #newFiles} #{linkingVerb #newFiles} new."
     log.print "- #{#oldFiles} package#{plural #oldFiles} no longer exist#{singular #oldFiles}."
