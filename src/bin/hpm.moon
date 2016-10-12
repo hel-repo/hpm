@@ -626,7 +626,7 @@ argString = (v) -> checkType v, "string", tostring v
 
 -- Check if an element is in the table
 isin = (v, tbl) ->
-  for k, value in pairs tbl do
+  for k, value in pairs tbl
     if value == v
       return true, k
   return false
@@ -813,6 +813,27 @@ public = (func) ->
     __call: (self, ...) -> func ...
   }
 
+wrapResponse = (resp, file) ->
+  ->
+    result, chunk = pcall resp
+    unless result
+      false, "Could not download '#{file}': #{chunk}"
+    else
+      chunk
+
+recv = (url, connectError="Could not download '%s': %s", downloadError="Could not download '%s': %s") ->
+  result, response, reason = download url
+  return false, connectError\format url, reason unless result and response
+  data = ""
+  for chunk, reason in wrapResponse response
+    if chunk
+      data ..= chunk
+    else
+      return false, downloadError\format url, reason
+  if empty data
+    return false, downloadError\format url, "empty response"
+  data
+
 
 -- Distribution modules --------------------------------------------------------
 --
@@ -856,7 +877,7 @@ modules.hel = class extends modules.default
 
     versions = {}
 
-    for number, data in pairs decoded.versions do
+    for number, data in pairs decoded.versions
       v = semver.Version number
       log.fatal "Could not parse the version in package: #{v}" unless v
       versions[v] = data
@@ -869,12 +890,12 @@ modules.hel = class extends modules.default
 
     data = { name: decoded.name, version: selectedVersion, files: {}, dependencies: {} }
 
-    for url, file in pairs versions[bestMatch].files do
+    for url, file in pairs versions[bestMatch].files
       dir = file.dir
       name = file.name
       insert data.files, { :url, :dir, :name }
 
-    for depName, depData in pairs versions[bestMatch].depends do
+    for depName, depData in pairs versions[bestMatch].depends
       version = depData.version
       depType = depData.type
       insert data.dependencies, { name: depName, :version, type: depType }
@@ -911,7 +932,7 @@ modules.hel = class extends modules.default
         else
           log.fatal "'#{pkgData.name}@#{pkgData.version}' was attempted to install, however, another version of the same package is already installed: '#{pkgData.name}@#{manifest.version}'"
 
-    for key, file in pairs pkgData.files do
+    for key, file in pairs pkgData.files
       f = nil
       result, response, reason = download file.url
       if result and response
@@ -924,7 +945,7 @@ modules.hel = class extends modules.default
           log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
 
         result, reason = pcall ->
-          for result, chunk in -> pcall response do
+          for result, chunk in -> pcall response
             if not result
               if chunk == "connection lost"
                 break
@@ -955,15 +976,15 @@ modules.hel = class extends modules.default
       spec = @getPackageSpec name
       data = @parsePackageJSON spec, verSpec
       unresolved[#unresolved].version = data.version
-      for dep in *data.dependencies do
+      for dep in *data.dependencies
         isResolved = false
-        for pkg in *resolved do
+        for pkg in *resolved
           if pkg.pkg.name == dep.name
             isResolved = true
             break
         if not isResolved
           key = nil
-          for k, pkg in pairs unresolved do
+          for k, pkg in pairs unresolved
             if pkg.name == dep.name
               key = k
               break
@@ -989,15 +1010,15 @@ modules.hel = class extends modules.default
       list = try listFiles concat distPath, "hel"
       for file in list
         manifest = try loadManifest file, nil, "hel"
-        for dep in *manifest.dependencies do
+        for dep in *manifest.dependencies
           if dep.name == name
             isResolved = false
-            for pkg in *resolved do
+            for pkg in *resolved
               if pkg.name == file
                 isResolved = true
                 break
             if not isResolved
-              for pkg in *unresolved do
+              for pkg in *unresolved
                 if pkg.name == file
                   log.fatal "Circular dependencies detected: #{file}"
               @getPackageDependants file, resolved, unresolved
@@ -1017,7 +1038,7 @@ modules.hel = class extends modules.default
 
     dependencyGraph = @resolveDependencies name, spec
     manifests = {}
-    for node in *dependencyGraph do
+    for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{tostring node.pkg.version}'..."
       insert manifests, @rawInstall node.pkg, save
     manifests
@@ -1033,7 +1054,7 @@ modules.hel = class extends modules.default
       }
     else
       @getPackageDependants manifest.name
-    for dep in *deps do
+    for dep in *deps
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
       try @remove dep.manifest, true
     true
@@ -1105,7 +1126,7 @@ modules.oppm = class extends modules.default
     return false, "Could not fetch #{repo}:#{branch}/#{path}: #{reason}" unless result and response
     data = json\decode table.concat [x for x in response when x], ""
     return false, "Could not fetch #{repo}:#{branch}/#{path}: #{data.message}" if data.message
-    [{ url: file.download_url, path: file.path } for file in *data]
+    [{ name: file.name, url: file.download_url, path: file.path } for file in *data when file.type == "file"]
 
   @updateCache: =>
     cacheDir = @cacheDirectory!
@@ -1171,8 +1192,13 @@ modules.oppm = class extends modules.default
     log.print "- #{#oldFiles} package#{plural #oldFiles} no longer exist#{singular #oldFiles}."
     true
 
-  @install: (name) =>
-    cacheDir = @cacheDirectory!
+  @parseLocalPath: (prefix, lPath) =>
+    if lPath\sub(1, 2) == "//"
+      concat prefix, lPath\sub 3
+    else
+      concat prefix, "usr", lPath
+
+  @rawInstall: (name, prefix="/") =>
     cacheList = @listCache!
     local manifest
     for package in *cacheList
@@ -1181,6 +1207,39 @@ modules.oppm = class extends modules.default
         manifest = package
         break
     log.fatal "No such package: #{name}" unless manifest
+
+    stats = {
+      filesInstalled: 0
+    }
+
+    repo = manifest.repo
+    for rPath, lPath in pairs manifest.data.data.files
+      -- Remote file paths. Usually there's a single item, but directory
+      -- contents tokens may cause population with multiple items.
+      rFiles = {}
+      -- Directory contents token
+      if rPath\sub(1, 1) == ":"
+        rFiles = @resolveDirectory repo, rPath\sub(2, rPath\find("/") - 1, nil), rPath\sub rPath\find("/") + 1
+      else
+        rFiles = {{
+          name: fs.name rPath,
+          path: rPath,
+          url: @FILES\format repo, rPath
+        }}
+      for { :name, :path, :url } in *rFiles
+        contents = try recv url
+        localPath = @parseLocalPath prefix, lPath
+        unless existsDir localPath
+          makeDirectory localPath
+        with file, reason = io.open concat(localPath, name), "w"
+          log.fatal "Could not open file for writing: #{reason}" if not file
+          \write contents
+          \close!
+        stats.filesInstalled += 1
+    manifest.data, stats
+
+  @install: (name) =>
+    @rawInstall name
 
   @cache: public (command, ...) =>
     switch command
@@ -1203,7 +1262,7 @@ modules.local = class extends modules.default
     -- try to load data from local directory-package
     manifest = loadManifest path, concat path, "manifest"
     -- copy files to corresponding positions
-    for key, file in pairs(manifest.files) do
+    for key, file in pairs(manifest.files)
       log.print "Install '#{file.name}' ... "
       result, reason = copy concat(path, file.name), concat(file.dir, file.name)
       log.error "Cannot copy '#{file.name}' file: #{reason}" unless result
@@ -1235,7 +1294,7 @@ installPackage = (source, name, meta) ->
   -- Install
   result, reason = callModuleMethod getModuleBy(source), "install", name, meta
   if result
-    for manifest in *result do
+    for manifest in *result
       success, reason = saveManifest manifest, source
       if success
         log.info "Saved the manifest for '#{name}' package."
@@ -1250,7 +1309,7 @@ savePackage = (source, name, meta) ->
   log.fatal "No need to save already saved package..." if source == "local"
   result, reason = callModuleMethod getModuleBy(source), "save", name, meta
   if result
-    for manifest in *result do
+    for manifest in *result
       success, reason = saveManifest manifest, "", "./#{manifest.name}/", "manifest"
       if success
         log.info "Saved the manifest for local '#{name}' package."
