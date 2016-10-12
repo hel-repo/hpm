@@ -565,7 +565,7 @@ DEFAULT_CONFIG = [[
 -- << Global settings >> -------------------------------------------------------
 -- A directory where package manifests will be placed.
 -- It will be created if it doesn't exist.
-dist = "/etc/hpm/dist"
+dist = "/var/lib/hpm/dist"
 
 -- A place where to search for custom hpm modules.
 -- It will be created if it doesn't exist.
@@ -627,7 +627,7 @@ argString = (v) -> checkType v, "string", tostring v
 -- Check if an element is in the table
 isin = (v, tbl) ->
   for k, value in pairs tbl do
-    if value == v then
+    if value == v
       return true, k
   return false
 
@@ -666,20 +666,20 @@ remove = (path) ->
 
 loadConfig = ->
   path = options.c or options.config or CONFIG_PATH
-  if not existsFile path then
+  if not existsFile path
     dirPath = fs.path path
-    if not existsDir dirPath then
+    if not existsDir dirPath
       result, reason = makeDirectory dirPath
-      if not result then
+      if not result
         return false, "Failed to create '#{dirPath}' directory for the config file: #{reason}"
     file, reason = io.open path, "w"
-    if file then
+    if file
       file\write DEFAULT_CONFIG
       file\close!
     else
       return false, "Failed to open config file for writing: #{reason}"
   file, reason = io.open path, "r"
-  if file then
+  if file
     content = file\read "*all"
     file\close!
     globals = {}
@@ -688,8 +688,8 @@ loadConfig = ->
       setmetatable base, {
         __index: {
           get: (k, v, createNewUndecl) ->
-            if type(base[k]) != "nil" then
-              if type(base[k]) == "table" then
+            if type(base[k]) != "nil"
+              if type(base[k]) == "table"
                 return newUndecl base[k]
               return base[k]
             log.error "Attempt to access undeclared config field '#{k}'!"
@@ -766,22 +766,19 @@ getModuleBy = (source) ->
   modules[source] or modules.default
 
 -- Call module operation (with fallback to default module)
-callModuleMethod = (mod, name, ...) ->
-  mod = mod or modules.default
+callModuleMethod = (mod=modules.default, name, ...) ->
   if mod[name] then mod[name](mod, ...)
   else modules.default[name](modules.default, ...)
 
 -- Save manifest to dist-data folder
-saveManifest = (manifest, path, name) ->
+saveManifest = (manifest, mod="hel", path=concat(distPath, mod), name=manifest.name) ->
   if not manifest
     return false, "'nil' given"
 
-  path = path or distPath
-  name = name or manifest.name
   if not existsDir path
     result, reason = makeDirectory path
     if not result
-      return false, "Failed to create '#{path}' directory for manifest files: #{reason}"
+      return false, "Failed to create '#{concat path, mod}' directory for manifest files: #{reason}"
 
   file, reason = io.open concat(path, name), "w"
   if file
@@ -792,8 +789,8 @@ saveManifest = (manifest, path, name) ->
     false, "Failed to open file for writing: #{reason}"
 
 -- Read package manifest from file
-loadManifest = (name, path) ->
-  path = path or concat distPath, name
+loadManifest = (name, path, mod="hel") ->
+  path = path or concat distPath, mod, name
   if existsFile path
     file, reason = io.open path, "rb"
     if file
@@ -804,8 +801,8 @@ loadManifest = (name, path) ->
   else false, "No manifest found for '#{name}' package"
 
 -- Delete manifest file
-removeManifest = (name) ->
-  path = concat distPath, name
+removeManifest = (name, mod="hel") ->
+  path = concat distPath, mod, name
   if existsFile path then remove path
   else false, "No manifest found for '#{name}' package"
 
@@ -834,14 +831,14 @@ public = (func) ->
 modules.default = class
   @install: -> log.fatal "Incorrect source is provided! No default 'install' implementation."
 
-  @remove: (manifest) =>
+  @remove: (manifest, mod="hel") =>
     if manifest
       if manifest.files
         for i, file in pairs(manifest.files)
           path = concat file.dir, file.name
           result, reason = remove path
           return false, "Failed to remove '#{path}' file: #{reason}" unless result
-      removeManifest manifest.name
+      removeManifest manifest.name, mod
     else
       false, "Package can't be removed: the manifest is empty."
 
@@ -897,7 +894,7 @@ modules.hel = class extends modules.default
 
 
   @rawInstall: (pkgData, save) =>
-    prefix = if save then
+    prefix = if save
       concat getWorkingDirectory!, pkgData.name
     else
       "/"
@@ -906,9 +903,9 @@ modules.hel = class extends modules.default
       result, response = makeDirectory prefix
       log.fatal "Failed creating '#{prefix}' directory for package '#{pkgData.name}'! \n#{response}" unless result
     elseif not save
-      manifest = loadManifest pkgData.name
-      if manifest then
-        if manifest.version == tostring pkgData.version then
+      manifest = loadManifest pkgData.name, nil, "hel"
+      if manifest
+        if manifest.version == tostring pkgData.version
           log.print "'#{pkgData.name}@#{manifest.version}' is already installed, skipping..."
           return manifest
         else
@@ -927,11 +924,16 @@ modules.hel = class extends modules.default
           log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
 
         result, reason = pcall ->
-          for chunk in response do
-            if not f then
+          for result, chunk in -> pcall response do
+            if not result
+              if chunk == "connection lost"
+                break
+              error(chunk)
+            if not f
               f, reason = io.open concat(path, file.name), "wb"
               assert f, "Failed to open file for writing: " .. tostring(reason)
-            f\write(chunk)
+            if chunk
+              f\write(chunk)
 
       if f then f\close!
       log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{reason}" unless result
@@ -948,25 +950,25 @@ modules.hel = class extends modules.default
   -- Get an ordered list of packages for installation, resolving dependencies.
   @resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
     insert unresolved, { :name, version: "" }
-    manifest = loadManifest name
-    if not manifest or not verSpec\match semver.Version(manifest.version) then
+    manifest = loadManifest name, nil, "hel"
+    if not manifest or not verSpec\match semver.Version(manifest.version)
       spec = @getPackageSpec name
       data = @parsePackageJSON spec, verSpec
       unresolved[#unresolved].version = data.version
       for dep in *data.dependencies do
         isResolved = false
         for pkg in *resolved do
-          if pkg.pkg.name == dep.name then
+          if pkg.pkg.name == dep.name
             isResolved = true
             break
-        if not isResolved then
+        if not isResolved
           key = nil
           for k, pkg in pairs unresolved do
-            if pkg.name == dep.name then
+            if pkg.name == dep.name
               key = k
               break
-          if key then
-            if unresolved[key].version == dep.version then
+          if key
+            if unresolved[key].version == dep.version
               log.fatal "Circular dependencies detected: '#{name}@#{tostring data.version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring spec.version}'."
             else
               log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
@@ -981,22 +983,22 @@ modules.hel = class extends modules.default
   -- Get all packages that depend on the given, and return a list of the dependent packages.
   @getPackageDependants: (name, resolved={}, unresolved={}) =>
     insert unresolved, { :name }
-    manifest = loadManifest name
-    if manifest then
+    manifest = loadManifest name, nil, "hel"
+    if manifest
       insert resolved, { :name, :manifest }
-      list = try listFiles distPath
+      list = try listFiles concat distPath, "hel"
       for file in list
-        manifest = try loadManifest file
+        manifest = try loadManifest file, nil, "hel"
         for dep in *manifest.dependencies do
-          if dep.name == name then
+          if dep.name == name
             isResolved = false
             for pkg in *resolved do
-              if pkg.name == file then
+              if pkg.name == file
                 isResolved = true
                 break
-            if not isResolved then
+            if not isResolved
               for pkg in *unresolved do
-                if pkg.name == file then
+                if pkg.name == file
                   log.fatal "Circular dependencies detected: #{file}"
               @getPackageDependants file, resolved, unresolved
     else
@@ -1024,8 +1026,8 @@ modules.hel = class extends modules.default
   -- Remove packages and its dependants
   @remove: (manifest, recursiveCall=false) =>
     if recursiveCall
-      return super manifest
-    deps = if not config.get("hel", {}, true).get("remove_dependants", true) then
+      return super manifest, "hel"
+    deps = if not config.get("hel", {}, true).get("remove_dependants", true)
       {
         { name: manifest.name, :manifest }
       }
@@ -1041,7 +1043,7 @@ modules.oppm = class extends modules.default
 
   @REPOS: "https://raw.githubusercontent.com/OpenPrograms/openprograms.github.io/master/repos.cfg"
   @PACKAGES: "https://raw.githubusercontent.com/%s/master/programs.cfg"
-  @FILES: "https://raw.githubusercontent.com/%s/master/%s"
+  @FILES: "https://raw.githubusercontent.com/%s/%s"
   @DIRECTORY: "https://api.github.com/repos/%s/contents/%s?ref=%s"
   @DEFAULT_CACHE_DIRECTORY = "/var/cache/hpm/oppm"
 
@@ -1128,7 +1130,9 @@ modules.oppm = class extends modules.default
           else
             break if not chunk
             data ..= chunk
-        continue if empty data
+        if empty data
+          log.error "Could not fetch '#{repo}' at '#{repoData.repo}'"
+          continue
         repoPrograms = unserialize data
         for prg, prgData in pairs repoPrograms
           if prg\match "[^A-Za-z0-9._-]"
@@ -1167,6 +1171,17 @@ modules.oppm = class extends modules.default
     log.print "- #{#oldFiles} package#{plural #oldFiles} no longer exist#{singular #oldFiles}."
     true
 
+  @install: (name) =>
+    cacheDir = @cacheDirectory!
+    cacheList = @listCache!
+    local manifest
+    for package in *cacheList
+      { :path, :pkg, :repo, :data } = package
+      if pkg == name
+        manifest = package
+        break
+    log.fatal "No such package: #{name}" unless manifest
+
   @cache: public (command, ...) =>
     switch command
       when "update"
@@ -1201,25 +1216,27 @@ modules.local = class extends modules.default
 
 removePackage = (source, name) ->
   log.fatal "Incorrect package name!" unless name
-  manifest = try loadManifest name
+  source = "hel" if empty source
+  manifest = try loadManifest name, nil, source
   try callModuleMethod getModuleBy(source), "remove", manifest
   log.print "Done removal."
 
 installPackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
+  source = "hel" if empty source
   -- Check if this package was already installed
-  manifest, reason = loadManifest name
-  if manifest then
-    if not options.r then
+  manifest, reason = loadManifest name, nil, source
+  if manifest
+    if not options.r
       log.print "'#{name}' is already installed, skipping..."
       return
     else
       removePackage source, name
   -- Install
   result, reason = callModuleMethod getModuleBy(source), "install", name, meta
-  if result then
+  if result
     for manifest in *result do
-      success, reason = saveManifest manifest
+      success, reason = saveManifest manifest, source
       if success
         log.info "Saved the manifest for '#{name}' package."
       else
@@ -1229,11 +1246,12 @@ installPackage = (source, name, meta) ->
 
 savePackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
+  source = "hel" if empty source
   log.fatal "No need to save already saved package..." if source == "local"
   result, reason = callModuleMethod getModuleBy(source), "save", name, meta
-  if result then
+  if result
     for manifest in *result do
-      success, reason = saveManifest manifest, "./#{manifest.name}/", "manifest"
+      success, reason = saveManifest manifest, "", "./#{manifest.name}/", "manifest"
       if success
         log.info "Saved the manifest for local '#{name}' package."
       else
@@ -1242,12 +1260,16 @@ savePackage = (source, name, meta) ->
     log.error "Couldn't install package: #{reason}."
 
 printPackageList = ->
-  list = try listFiles distPath
+  modList = try listFiles distPath
   empty = true
-  for file in list
-    manifest = try loadManifest file
-    log.print file .. (manifest.version and " @ " .. manifest.version or "")
-    empty = false
+  for mod in modList
+    if isDirectory concat distPath, mod
+      list = try listFiles concat distPath, mod
+      for file in list
+        unless isDirectory concat distPath, mod, file
+          manifest = try loadManifest file, nil, mod
+          log.print file .. (manifest.version and " @ " .. manifest.version or "")
+          empty = false
   log.print "No packages installed." if empty
 
 
