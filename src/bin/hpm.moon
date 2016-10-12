@@ -1211,6 +1211,7 @@ modules.oppm = class extends modules.default
     stats = {
       filesInstalled: 0
     }
+    files = {}
 
     repo = manifest.repo
     for rPath, lPath in pairs manifest.data.data.files
@@ -1226,6 +1227,7 @@ modules.oppm = class extends modules.default
           path: rPath,
           url: @FILES\format repo, rPath
         }}
+      local name
       for { :name, :path, :url } in *rFiles
         contents = try recv url
         localPath = @parseLocalPath prefix, lPath
@@ -1236,10 +1238,69 @@ modules.oppm = class extends modules.default
           \write contents
           \close!
         stats.filesInstalled += 1
-    manifest.data, stats
+        insert files, { :name, :url, dir: localPath }
 
-  @install: (name) =>
-    @rawInstall name
+    dependencies = {}
+    if manifest.data.data.dependencies
+      for dep in pairs manifest.data.data.dependencies
+        insert dependencies, { name: dep }
+    {
+      :name,
+      :files,
+      :dependencies
+    }, stats
+
+  @resolveDependencies: (name, resolved={}, unresolved={}) =>
+    cacheList = @listCache!
+    unresolved[name] = true
+    manifest = loadManifest name, nil, "oppm"
+    if not manifest
+      local data
+      for package in *cacheList
+        { :pkg } = package
+        if pkg == name
+          data = package
+          break
+      return false, "Unknown package: #{name}" unless data
+      if data.data.dependencies
+        for dep in *data.data.dependencies
+          isResolved = false
+          for pkg in *resolved
+            if pkg.pkg.pkg == dep.name
+              isResolved = true
+              break
+          unless isResolved
+            if unresolved[name]
+              log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep.name}', and '#{dep.name}' depends on '#{name}'."
+            @resolveDependencies dep.name, resolved, unresolved
+      insert resolved, { pkg: data }
+    else
+      insert resolved, { pkg: manifest }
+    unresolved[name] = nil
+    resolved
+
+  @install: (name, meta, save=false) =>
+    dependencyGraph = try @resolveDependencies name
+    manifests = {}
+    stats = {
+      filesInstalled: 0,
+      packagesInstalled: 0
+    }
+    for node in *dependencyGraph
+      log.print "Installing '#{node.pkg.pkg}'..."
+      prefix = if save then "./#{node.pkg.pkg}/" else "/"
+      manifest, statsPart = @rawInstall node.pkg.pkg, prefix
+      stats.filesInstalled += statsPart.filesInstalled
+      stats.packagesInstalled += 1
+      insert manifests, manifest
+
+    log.print "Done."
+    log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
+    log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
+    manifests
+
+  @remove: (name) =>
+    super name, "oppm"
 
   @cache: public (command, ...) =>
     switch command
