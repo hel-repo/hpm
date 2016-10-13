@@ -1198,8 +1198,21 @@ modules.oppm = class extends modules.default
     else
       concat prefix, "usr", lPath
 
-  @rawInstall: (name, prefix="/") =>
+  @rawInstall: (name, prefix="/", save=false) =>
     cacheList = @listCache!
+    stats = {
+      filesInstalled: 0,
+      packagesInstalled: 0
+    }
+
+    if save and not existsDir prefix
+      result, reason = makeDirectory prefix
+      log.fatal "Failed to create '#{prefix}' directory for package '#{name}'! \n#{reason}" unless result
+    elseif not save
+      manifest = loadManifest name, nil, "oppm"
+      if manifest
+        log.print "'#{name}' is already installed, skipping..."
+        return manifest, stats
     local manifest
     for package in *cacheList
       { :path, :pkg, :repo, :data } = package
@@ -1208,9 +1221,6 @@ modules.oppm = class extends modules.default
         break
     log.fatal "No such package: #{name}" unless manifest
 
-    stats = {
-      filesInstalled: 0
-    }
     files = {}
 
     repo = manifest.repo
@@ -1244,6 +1254,8 @@ modules.oppm = class extends modules.default
     if manifest.data.data.dependencies
       for dep in pairs manifest.data.data.dependencies
         insert dependencies, { name: dep }
+    stats.packagesInstalled += 1
+
     {
       :name,
       :files,
@@ -1262,21 +1274,47 @@ modules.oppm = class extends modules.default
           data = package
           break
       return false, "Unknown package: #{name}" unless data
-      if data.data.dependencies
-        for dep in *data.data.dependencies
+      if data.data.data.dependencies
+        for dep in pairs data.data.data.dependencies
           isResolved = false
           for pkg in *resolved
-            if pkg.pkg.pkg == dep.name
+            if pkg.pkg.pkg == dep
               isResolved = true
               break
           unless isResolved
-            if unresolved[name]
-              log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep.name}', and '#{dep.name}' depends on '#{name}'."
-            @resolveDependencies dep.name, resolved, unresolved
-      insert resolved, { pkg: data }
+            if unresolved[dep]
+              log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep}', and '#{dep}' depends on '#{name}'."
+            @resolveDependencies dep, resolved, unresolved
+      insert resolved, name
     else
-      insert resolved, { pkg: manifest }
+      insert resolved, name
     unresolved[name] = nil
+    resolved
+
+  @getPackageDependants: (name, resolved={}, unresolved={}) =>
+    insert unresolved, { :name }
+    manifest = loadManifest name, nil, "oppm"
+    if manifest
+      insert resolved, { :name, :manifest }
+      list = try listFiles concat distPath, "oppm"
+      for file in list
+        manifest = try loadManifest file, nil, "oppm"
+        for dep in *manifest.dependencies
+          if dep.name == name
+            isResolved = false
+            for pkg in *resolved
+              if pkg.name == file
+                isResolved = true
+                break
+            if not isResolved
+              for pkg in *unresolved
+                if pkg.name == file
+                  log.fatal "Circular dependencies detected: #{file}"
+              @getPackageDependants file, resolved, unresolved
+    else
+      log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
+
+    unresolved[#unresolved] = nil
     resolved
 
   @install: (name, meta, save=false) =>
@@ -1287,12 +1325,13 @@ modules.oppm = class extends modules.default
       packagesInstalled: 0
     }
     for node in *dependencyGraph
-      log.print "Installing '#{node.pkg.pkg}'..."
-      prefix = if save then "./#{node.pkg.pkg}/" else "/"
-      manifest, statsPart = @rawInstall node.pkg.pkg, prefix
+      log.print "Installing '#{node}'..."
+      prefix = if save then "./#{node}/" else "/"
+      manifest, statsPart = @rawInstall node, prefix, save
       stats.filesInstalled += statsPart.filesInstalled
-      stats.packagesInstalled += 1
-      insert manifests, manifest
+      stats.packagesInstalled += statsPart.packagesInstalled
+      if stats.packagesInstalled != 0
+        insert manifests, manifest
 
     log.print "Done."
     log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
@@ -1301,6 +1340,9 @@ modules.oppm = class extends modules.default
 
   @remove: (name) =>
     super name, "oppm"
+
+  @save: (name, meta) =>
+    @install name, meta, true
 
   @cache: public (command, ...) =>
     switch command
