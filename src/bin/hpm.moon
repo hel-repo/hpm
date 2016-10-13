@@ -757,6 +757,14 @@ findCustomCommand = (name) ->
       log.info "Note, using #{mod}:#{command}."
       (...) -> candidates[1].method candidates[1].class, ...
   else
+    if modules[mod] and empty command
+      -- List module-specific methods
+      modSpecMths = {}
+      for k, v in pairs modules[mod]
+        if type(v) == "table" and v.__public == true
+          insert modSpecMths, tostring k
+      log.print "Available module-specific commands: #{table.concat modSpecMths, ", "}"
+      return false
     if not modules[mod] or not modules[mod][command] or modules[mod][command] and (type(modules[mod][command]) != "table" or modules[mod][command].__public != true)
       log.error "Unknown command: #{mod}:#{command}"
       false
@@ -917,7 +925,7 @@ modules.hel = class extends modules.default
     decoded
 
 
-  @rawInstall: (pkgData, save) =>
+  @rawInstall: (pkgData, save, isManuallyInstalled=false) =>
     prefix = if save
       concat getWorkingDirectory!, pkgData.name
     else
@@ -950,7 +958,7 @@ modules.hel = class extends modules.default
         \close!
 
     log.print "Done."
-    { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies }
+    { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies, manual: isManuallyInstalled }
 
 
   -- Save package locally
@@ -1030,7 +1038,7 @@ modules.hel = class extends modules.default
     manifests = {}
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{tostring node.pkg.version}'..."
-      insert manifests, @rawInstall node.pkg, save
+      insert manifests, @rawInstall node.pkg, name == node.pkg.name, save
     manifests
 
 
@@ -1189,7 +1197,7 @@ modules.oppm = class extends modules.default
     else
       concat prefix, "usr", lPath
 
-  @rawInstall: (name, prefix="/", save=false) =>
+  @rawInstall: (name, prefix="/", isManuallyInstalled=false, save=false) =>
     cacheList = @listCache!
     stats = {
       filesInstalled: 0,
@@ -1250,7 +1258,8 @@ modules.oppm = class extends modules.default
     {
       :name,
       :files,
-      :dependencies
+      :dependencies,
+      manual: isManuallyInstalled
     }, stats
 
   @resolveDependencies: (name, resolved={}, unresolved={}) =>
@@ -1318,7 +1327,7 @@ modules.oppm = class extends modules.default
     for node in *dependencyGraph
       log.print "Installing '#{node}'..."
       prefix = if save then "./#{node}/" else "/"
-      manifest, statsPart = @rawInstall node, prefix, save
+      manifest, statsPart = @rawInstall node, prefix, node == name, save
       stats.filesInstalled += statsPart.filesInstalled
       stats.packagesInstalled += statsPart.packagesInstalled
       if stats.packagesInstalled != 0
