@@ -582,7 +582,10 @@ hel.remove_dependants = true
 oppm = {}
 
 -- A directory where package manifests will be stored for faster access.
-oppm.cache_directory = "/var/cache/hpm/oppm"]]
+oppm.cache_directory = "/var/cache/hpm/oppm"
+
+-- See hel.remove_dependants above.
+oppm.remove_dependants = true]]
 
 
 -- Logging functions -----------------------------------------------------------
@@ -1278,7 +1281,7 @@ modules.oppm = class extends modules.default
         for dep in pairs data.data.data.dependencies
           isResolved = false
           for pkg in *resolved
-            if pkg.pkg.pkg == dep
+            if pkg == dep
               isResolved = true
               break
           unless isResolved
@@ -1338,8 +1341,19 @@ modules.oppm = class extends modules.default
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
     manifests
 
-  @remove: (name) =>
-    super name, "oppm"
+  @remove: (manifest, recursiveCall=false) =>
+    if recursiveCall
+      return super manifest, "oppm"
+    deps = if not config.get("oppm", {}, true).get("remove_dependants", true)
+      {
+        { name: manifest.name, :manifest }
+      }
+    else
+      @getPackageDependants manifest.name
+    for dep in *deps
+      log.print "Removing '#{dep.manifest.name}' ..."
+      try @remove dep.manifest, true
+    true
 
   @save: (name, meta) =>
     @install name, meta, true
@@ -1424,13 +1438,14 @@ savePackage = (source, name, meta) ->
 printPackageList = ->
   modList = try listFiles distPath
   empty = true
-  for mod in modList
+  for modDir in modList
+    mod = fs.name modDir
     if isDirectory concat distPath, mod
       list = try listFiles concat distPath, mod
       for file in list
         unless isDirectory concat distPath, mod, file
           manifest = try loadManifest file, nil, mod
-          log.print file .. (manifest.version and " @ " .. manifest.version or "")
+          log.print mod .. ":" .. file .. (manifest.version and " @ " .. manifest.version or "")
           empty = false
   log.print "No packages installed." if empty
 
