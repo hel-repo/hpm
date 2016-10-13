@@ -833,8 +833,8 @@ recv = (url, connectError="Could not download '%s': %s", downloadError="Could no
       data ..= chunk
     else
       return false, downloadError\format url, reason
-  if empty data
-    return false, downloadError\format url, "empty response"
+  -- if empty data
+  --   return false, downloadError\format url, "empty response"
   data
 
 
@@ -936,31 +936,18 @@ modules.hel = class extends modules.default
           log.fatal "'#{pkgData.name}@#{pkgData.version}' was attempted to install, however, another version of the same package is already installed: '#{pkgData.name}@#{manifest.version}'"
 
     for key, file in pairs pkgData.files
-      f = nil
-      result, response, reason = download file.url
-      if result and response
-        log.print "Fetching '#{file.name}' ..."
+      log.print "Fetching '#{file.name}' ..."
+      contents = try recv file.url
 
-        path = prefix .. file.dir
-        if not existsDir path
-          result, response = makeDirectory path
-          print path
-          log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
+      path = prefix .. file.dir
+      if not existsDir path
+        result, response = makeDirectory path
+        log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
 
-        result, reason = pcall ->
-          for result, chunk in -> pcall response
-            if not result
-              if chunk == "connection lost"
-                break
-              error(chunk)
-            if not f
-              f, reason = io.open concat(path, file.name), "wb"
-              assert f, "Failed to open file for writing: " .. tostring(reason)
-            if chunk
-              f\write(chunk)
-
-      if f then f\close!
-      log.fatal "Failed to download '#{file.name}' from '#{file.url}'! \n#{reason}" unless result
+      with file, reason = io.open concat(path, file.name), "w"
+        log.fatal "Could not open '#{concat path, file.name}' for writing: #{reason}" unless file
+        \write contents
+        \close!
 
     log.print "Done."
     { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies }
@@ -1125,18 +1112,17 @@ modules.oppm = class extends modules.default
     true
 
   @resolveDirectory: (repo, branch, path) =>
-    result, response, reason = download @DIRECTORY\format repo, path, branch
-    return false, "Could not fetch #{repo}:#{branch}/#{path}: #{reason}" unless result and response
-    data = json\decode table.concat [x for x in response when x], ""
+    data = try recv @DIRECTORY\format repo, path, branch
+    data = json\decode data
     return false, "Could not fetch #{repo}:#{branch}/#{path}: #{data.message}" if data.message
     [{ name: file.name, url: file.download_url, path: file.path } for file in *data when file.type == "file"]
 
   @updateCache: =>
     cacheDir = @cacheDirectory!
     oldFiles = try @listCache!
-    result, response, reason = download @REPOS
-    return false, "Could not fetch #{@REPOS}: #{reason}" unless result and response
-    repos = unserialize table.concat [x for x in response when x], ""
+    repos, reason = recv @REPOS
+    return false, "Could not fetch #{@REPOS}: #{reason}" unless repos
+    repos = unserialize repos
     programs = {}
     for repo, repoData in pairs repos
       if repoData.repo
@@ -1149,11 +1135,13 @@ modules.oppm = class extends modules.default
         for result, chunk in -> pcall response
           if not result
             log.error "Could not fetch '#{repo}' at '#{repoData.repo}': #{chunk}"
-            data = ""
+            data = false
             break
           else
             break if not chunk
             data ..= chunk
+        if data == false
+          continue
         if empty data
           log.error "Could not fetch '#{repo}' at '#{repoData.repo}'"
           continue
@@ -1165,7 +1153,7 @@ modules.oppm = class extends modules.default
           insert programs, { repo: repoData.repo, name: prg, data: prgData }
     newFiles = {}
     for { :name, :repo, :data } in *programs
-      if isin name, newFiles
+      if isin concat(repo, name), newFiles
         log.error "There're multiple packages under the same name: #{name}!"
       unless existsDir concat cacheDir, repo
         result, reason = makeDirectory concat cacheDir, repo
@@ -1184,7 +1172,7 @@ modules.oppm = class extends modules.default
       if k
         oldFiles[k] = nil
       else
-        insert newFiles, name
+        insert newFiles, concat repo, name
     log.print "Removing old cache files ..."
     for { :fullPath } in *oldFiles
       remove fullPath
