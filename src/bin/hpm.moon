@@ -517,6 +517,8 @@ shell = require "shell"
 import isDirectory, exists, makeDirectory, concat, copy from require "filesystem"
 fs = require "filesystem"
 import serialize, unserialize from require "serialization"
+import pull from require "event"
+import clearLine, getCursor from require "term"
 
 import exit from os
 import write, stderr from io
@@ -845,6 +847,67 @@ recv = (url, connectError="Could not download '%s': %s", downloadError="Could no
   --   return false, downloadError\format url, "empty response"
   data
 
+confirm = ->
+  unless options.y
+    io.write "Press [ENTER] to continue..."
+    key = select 3, pull "key_down"
+    if key == 13  -- Enter
+      clearLine!
+      true
+    else
+      io.write "\n"
+      false
+  else
+    true
+
+pkgPlan = (plan) ->
+  complexity = 0
+  msg = {}
+  if plan.install
+    m = {"Packages to INSTALL:",
+         table.concat plan.install, "  "}
+    insert msg, m
+    complexity += #plan.install
+  else
+    plan.install = {}
+  if plan.reinstall
+    m = {"Packages to REINSTALL:",
+         table.concat plan.reinstall, "  "}
+    insert msg, m
+    complexity += #plan.reinstall
+  else
+    plan.reinstall = {}
+  if plan.upgrade
+    m = {"Packages to UPGRADE:",
+         table.concat plan.upgrade, "  "}
+    insert msg, m
+    complexity += #plan.upgrade
+  else
+    plan.upgrade = {}
+  if plan.remove
+    m = {"Packages to REMOVE:",
+         table.concat plan.remove, "  "}
+    insert msg, m
+    complexity += #plan.remove
+  else
+    plan.remove = {}
+
+  do
+    m = {"#{#plan.install} to INSTALL, #{#plan.reinstall} to REINSTALL, #{#plan.upgrade} to UPGRADE, #{#plan.remove} to REMOVE."}
+    insert msg, m
+  for num, i in pairs msg
+    for num, line in pairs i
+      if num == 1
+        log.print line
+      else
+        log.print "  #{line}"
+    if num != #msg
+      log.print ""
+
+  if complexity > 1
+    unless confirm!
+      exit 7
+
 
 -- Distribution modules --------------------------------------------------------
 --
@@ -1035,6 +1098,9 @@ modules.hel = class extends modules.default
     log.fatal "Could not parse the version specification: #{spec}!" unless success
 
     dependencyGraph = @resolveDependencies name, spec
+    pkgPlan {
+      install: ["hel:#{node.pkg.name}@#{node.pkg.version}" for node in *dependencyGraph]
+    }
     manifests = {}
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{tostring node.pkg.version}'..."
@@ -1052,6 +1118,9 @@ modules.hel = class extends modules.default
       }
     else
       @getPackageDependants manifest.name
+    pkgPlan {
+      remove: ["hel:#{node.pkg.name}@#{node.manifest.version}" for node in *deps]
+    }
     for dep in *deps
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
       try @remove dep.manifest, true
@@ -1319,6 +1388,9 @@ modules.oppm = class extends modules.default
 
   @install: (name, meta, save=false) =>
     dependencyGraph = try @resolveDependencies name
+    pkgPlan {
+      install: ["oppm:#{node}" for node in *dependencyGraph]
+    }
     manifests = {}
     stats = {
       filesInstalled: 0,
@@ -1347,6 +1419,9 @@ modules.oppm = class extends modules.default
       }
     else
       @getPackageDependants manifest.name
+    pkgPlan {
+      remove: ["oppm:#{node.name}" for node in *deps]
+    }
     for dep in *deps
       log.print "Removing '#{dep.manifest.name}' ..."
       try @remove dep.manifest, true
