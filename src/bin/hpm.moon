@@ -639,6 +639,13 @@ isin = (v, tbl) ->
 -- Check if given string contains something useful
 empty = (str) -> not str or #str < 1
 
+-- All values are true
+all = (vals) ->
+  for v in *vals
+    if not v
+      return false
+  true
+
 -- More specific fs.exist versions
 existsDir = (path) -> exists(path) and isDirectory path
 existsFile = (path) -> exists(path) and not isDirectory path
@@ -1386,6 +1393,17 @@ modules.oppm = class extends modules.default
     unresolved[#unresolved] = nil
     resolved
 
+  @whatDependsOn: (name) =>
+    manifest = try loadManifest name, nil, "oppm"
+    result = {}
+    list = try listFiles concat distPath, "oppm"
+    for file in list
+      manifest = try loadManifest file, nil, "oppm"
+      for dep in *manifest.dependencies
+        if dep.name == name
+          insert result, file
+    result
+
   @install: (name, meta, save=false) =>
     dependencyGraph = try @resolveDependencies name
     pkgPlan {
@@ -1410,7 +1428,7 @@ modules.oppm = class extends modules.default
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
     manifests
 
-  @remove: (manifest, recursiveCall=false) =>
+  @remove: (manifest, recursiveCall=false, noPlan=false) =>
     if recursiveCall
       return super manifest, "oppm"
     deps = if not config.get("oppm", {}, true).get("remove_dependants", true)
@@ -1419,9 +1437,10 @@ modules.oppm = class extends modules.default
       }
     else
       @getPackageDependants manifest.name
-    pkgPlan {
-      remove: ["oppm:#{node.name}" for node in *deps]
-    }
+    if noPlan
+      pkgPlan {
+        remove: ["oppm:#{node.name}" for node in *deps]
+      }
     for dep in *deps
       log.print "Removing '#{dep.manifest.name}' ..."
       try @remove dep.manifest, true
@@ -1442,7 +1461,52 @@ modules.oppm = class extends modules.default
         log.print "Done."
       else
         log.error "Unknown command."
-        log.print "Usage: hpm oppm:cache {update}"
+        log.print "Usage: hpm oppm:cache {update|fix}"
+
+  @autoremove: public =>
+    toRemove = {}
+    sorted = {}
+    -- Step 1. Find non-manually-installed packages that have 0 dependants
+    list = try listFiles concat distPath, "oppm"
+    for file in list
+      manifest = try loadManifest file, nil, "oppm"
+      unless manifest.manual
+        deps = @getPackageDependants(file)
+        if #deps == 1
+          insert toRemove, file
+          insert sorted, file
+
+    -- Step 2. Descend and find packages that are only needed by
+    --         packages found in the step 1.
+    while true
+      changed = false
+      list = try listFiles concat distPath, "oppm"
+      for file in list
+        unless isin file, toRemove
+          manifest = try loadManifest file, nil, "oppm"
+          unless manifest.manual
+            deps = @getPackageDependants file
+            table.remove deps, 1
+            if all [isin x.name, toRemove for x in *deps]
+              for dep in *deps
+                _, k = isin dep.name, sorted
+                if k
+                  table.remove sorted, k
+              insert toRemove, file
+              insert sorted, file
+              changed = true
+      unless changed
+        break
+
+    -- Step 3. Show the plan and remove the packages.
+    pkgPlan {
+      remove: if #toRemove > 0 then ["oppm:#{name}" for name in *toRemove] else nil
+    }
+    for name in *sorted
+      @remove try(loadManifest(name, nil, "oppm")), false, false
+
+    log.print "Done."
+    true
 
 
 -- Local-install module
