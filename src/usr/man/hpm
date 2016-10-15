@@ -17,8 +17,10 @@ DESCRIPTION
 
   Available package formats:
   [hel:]<name>[@<version>]  Package from the Hel Package Repository (default option).
-                            If no version specified, the last version will be installed.
+                            <version> is the version specification. Multiple items are delimited by the comma. Ex.: 0.5.0; ^1,!=1.3,<1.6.
+                            If the specification is omitted, the latest package version will be installed.
   local:<path>              Get package from local file system.
+  oppm:<package name>       Install from the OpenPrograms repository.
   pastebin:<id>             Download source code from given Pastebin page.
   direct:<url>              Fetch file from <url>.
 
@@ -29,7 +31,29 @@ OPTIONS
     Verbose mode - show additional info.
  --c, --config
       Path to hpm config file.
+  -y
+    Don't ask to press the Enter key for confirmation.
 
+METHOD-SPECIFIC OPTIONS
+  install
+    -r
+      Reinstall the package: remove it first, and then install.
+
+MODULE-SPECIFIC METHODS
+  oppm:autoremove
+    Find packages that were installed as dependencies, and aren't needed now.
+
+  oppm:cache update
+    Fetch the latest package manifests from OpenPrograms repositories.
+
+  oppm:cache fix
+    Find and remove redundant filesystem nodes in the cache directory.
+
+FILES
+  /etc/hpm/hpm.cfg     configuration file
+  /etc/hpm/modules/    directory for custom modules
+  /var/lib/hpm/dist/   manifest directory
+  /var/cache/hpm/      cache directory
 
 EXAMPLES
   hpm install holo@0.7.0
