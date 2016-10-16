@@ -534,7 +534,7 @@ request = nil           -- internet request method (call checkInternet to instan
 modules = {}            -- distribution modules
 config = {}             -- configuration table (initialized by loadConfig)
 modulePath = "/etc/hpm/module/" -- custom source modules
-distPath = "/etc/hpm/dist/"     -- manifests of installed packages
+distPath = "/var/lib/hpm/dist/"     -- manifests of installed packages
 exitCode = 0
 
 -- Constants
@@ -737,7 +737,7 @@ loadCustomModules = ->
   list = try listFiles modulePath
   for file in list
     name = file\match("^(.+)%..+$")
-    mod = dofile concat modulePath, file
+    mod = (loadfile(concat modulePath, file), "t", _ENV)!
     modules[name] = mod if mod
   true
 
