@@ -737,7 +737,7 @@ loadCustomModules = ->
   list = try listFiles modulePath
   for file in list
     name = file\match("^(.+)%..+$")
-    mod = (loadfile(concat modulePath, file), "t", _ENV)!
+    mod = (loadfile concat(modulePath, file), "t", _ENV)!
     modules[name] = mod if mod
   true
 
