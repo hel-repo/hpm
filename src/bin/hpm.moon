@@ -659,6 +659,13 @@ singular = (amount) -> amount != 1 and "" or "s"
 -- Choose between "are" and "is" depending on the given amount
 linkingVerb = (amount) -> amount == 1 and "is" or "are"
 
+-- Calculate the length of table
+tableLen = (tbl) ->
+  result = 0
+  for k, v in pairs tbl
+    result += 1
+  result
+
 -- Return (source, name, meta) from "[<source>:]<name>[@<meta>]" string
 parsePackageName = (value) ->
   value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
@@ -1132,6 +1139,33 @@ modules.hel = class extends modules.default
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
       try @remove dep.manifest, true
     true
+
+  @info: public (pkg, specString="*") =>
+    specString = "*" if empty(specString)
+    log.print "Creating version specification for #{specString} ..."
+    success, versionSpec = pcall -> semver.Spec specString
+    log.fatal "Could not parse the version specification: #{versionSpec}!" unless success
+
+    spec = @getPackageSpec pkg
+    data = @parsePackageJSON spec, versionSpec
+
+    message = {}
+    insert message, "- Package name:   #{spec.name}"
+    insert message, "- Description:\n#{spec.description}\n"
+    insert message, "- Package owners: #{table.concat spec.owners, ", "}"
+    insert message, "- Authors:\n#{table.concat ["  - #{x}" for x in *spec.authors], "\n"}"
+    insert message, "- License:        #{spec.license}"
+    insert message, "- Versions:       #{tableLen spec.versions}, latest: #{data.version}"
+    insert message, "  - Files:        #{#data.files}"
+    insert message, "  - Depends:      #{table.concat ["#{x.name}@#{x.version}" for x in *data.dependencies]}"
+    insert message, "  - Changes:\n#{spec.versions[data.version].changes}\n"
+    insert message, "- Stats:"
+    insert message, "  - Views:        #{spec.stats.views}"
+    insert message, "  - Downloads:    #{spec.stats.downloads}"
+    insert message, "- Creation date:  #{spec.stats.date.created} UTC"
+    insert message, "- Last updated:   #{spec.stats.date["last-updated"]} UTC"
+
+    log.print table.concat message, "\n"
 
 
 modules.oppm = class extends modules.default
