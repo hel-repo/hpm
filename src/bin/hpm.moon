@@ -539,29 +539,9 @@ exitCode = 0
 
 -- Constants
 CONFIG_PATH = "/etc/hpm/hpm.cfg" -- the path to default hpm configuration file
-USAGE = "Usage: hpm [-vq] <options> <command>
-  -q: Quiet mode - no console output.
-  -v: Verbose mode - show additional info.
-
- --c, --config:
-      Path to hpm config file.
-
-Available commands:
-  install <package> [...]   Download package[s] from the Hel Repository, and install it to the system.
-  remove <package> [...]    Remove package[s] from the system.
-  save <package> [...]      Download package[s] without installation to the current directory.
-  list                      Show list of installed packages.
-  help                      Show this message.
-
-Command-specific options:
-  install
-   -r: install the package even if it exists (remove first).
-
-Available package formats:
-  [hel:]<name>[@<version>]  Package from the Hel Package Repository (default option).
-  local:<path>              Get package from local file system.
-  pastebin:<name>@<id>      Download source code from given Pastebin page.
-  direct:<name>@<url>       Fetch file from <url>."
+USAGE = [[
+Usage: hpm OPTIONS COMMAND
+See `man hpm` for more info.]]
 
 DEFAULT_CONFIG = [[
 -- << Global settings >> -------------------------------------------------------
@@ -636,8 +616,23 @@ isin = (v, tbl) ->
       return true, k
   return false
 
--- Check if given string contains something useful
-empty = (str) -> not str or #str < 1
+-- Calculate the length of table
+tableLen = (tbl) ->
+  result = 0
+  for k, v in pairs tbl
+    result += 1
+  result
+
+-- Check if given table or string contains something useful
+empty = (v) ->
+  if type(v) == "nil"
+    true
+  elseif type(v) == "string"
+    not v or #v < 1
+  elseif type(v) == "table"
+    not v or tableLen(v) < 1
+  else
+    true
 
 -- All values are true
 all = (vals) ->
@@ -659,22 +654,16 @@ singular = (amount) -> amount != 1 and "" or "s"
 -- Choose between "are" and "is" depending on the given amount
 linkingVerb = (amount) -> amount == 1 and "is" or "are"
 
--- Calculate the length of table
-tableLen = (tbl) ->
-  result = 0
-  for k, v in pairs tbl
-    result += 1
-  result
-
 -- Return (source, name, meta) from "[<source>:]<name>[@<meta>]" string
 parsePackageName = (value) ->
   value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
 
 -- Recursive remove
 remove = (path) ->
-  if not exists(path) or fs.get(shell.resolve(path)).isReadOnly()
-    log.error "Could not remove '#{path}': the path is readonly!"
-    false
+  if fs.get(shell.resolve(path)).isReadOnly!
+    false, "the path is readonly!"
+  elseif not exists path
+    false, "the filesystem node doesn't exist."
   else
     unless isDirectory(path) or fs.isLink path
       fs.remove path
@@ -877,28 +866,28 @@ confirm = ->
 pkgPlan = (plan) ->
   complexity = 0
   msg = {}
-  if plan.install
+  unless empty plan.install
     m = {"Packages to INSTALL:",
          table.concat plan.install, "  "}
     insert msg, m
     complexity += #plan.install
   else
     plan.install = {}
-  if plan.reinstall
+  unless empty plan.reinstall
     m = {"Packages to REINSTALL:",
          table.concat plan.reinstall, "  "}
     insert msg, m
     complexity += #plan.reinstall
   else
     plan.reinstall = {}
-  if plan.upgrade
+  unless empty plan.upgrade
     m = {"Packages to UPGRADE:",
          table.concat plan.upgrade, "  "}
     insert msg, m
     complexity += #plan.upgrade
   else
     plan.upgrade = {}
-  if plan.remove
+  unless empty plan.remove
     m = {"Packages to REMOVE:",
          table.concat plan.remove, "  "}
     insert msg, m
@@ -946,7 +935,7 @@ modules.default = class
         for i, file in pairs(manifest.files)
           path = concat file.dir, file.name
           result, reason = remove path
-          return false, "Failed to remove '#{path}' file: #{reason}" unless result
+          return false, "Failed to remove '#{path}': #{reason}" unless result
       removeManifest manifest.name, mod
     else
       false, "Package can't be removed: the manifest is empty."
@@ -1002,7 +991,7 @@ modules.hel = class extends modules.default
     decoded
 
 
-  @rawInstall: (pkgData, save, isManuallyInstalled=false) =>
+  @rawInstall: (pkgData, isManuallyInstalled=false, save=false) =>
     prefix = if save
       concat getWorkingDirectory!, pkgData.name
     else
@@ -1021,10 +1010,10 @@ modules.hel = class extends modules.default
           log.fatal "'#{pkgData.name}@#{pkgData.version}' was attempted to install, however, another version of the same package is already installed: '#{pkgData.name}@#{manifest.version}'"
 
     for key, file in pairs pkgData.files
-      log.print "Fetching '#{file.name}' ..."
+      log.info "Fetching '#{file.name}' ..."
       contents = try recv file.url
 
-      path = prefix .. file.dir
+      path = concat prefix, file.dir
       if not existsDir path
         result, response = makeDirectory path
         log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
@@ -1040,7 +1029,7 @@ modules.hel = class extends modules.default
 
   -- Save package locally
   @save: (name, version) =>
-    @install name, version, true
+    @install name, version, false, true
 
 
   -- Get an ordered list of packages for installation, resolving dependencies.
@@ -1105,16 +1094,20 @@ modules.hel = class extends modules.default
 
 
   -- Get package from repository, then parse, and install
-  @install: (name, specString="*", save) =>
+  @install: (name, specString="*", reinstall=false, save) =>
     specString = "*" if empty(specString)
     log.print "Creating version specification for #{specString} ..."
     success, spec = pcall -> semver.Spec specString
     log.fatal "Could not parse the version specification: #{spec}!" unless success
 
     dependencyGraph = @resolveDependencies name, spec
+    lastNode = dependencyGraph[#dependencyGraph]
     pkgPlan {
-      install: ["hel:#{node.pkg.name}@#{node.pkg.version}" for node in *dependencyGraph]
+      install: ["hel:#{node.pkg.name}@#{node.pkg.version}" for node in *dependencyGraph when not reinstall or node.pkg.name != name]
+      reinstall: reinstall and { "hel:#{lastNode.pkg.name}@#{lastNode.pkg.version}" }
     }
+    if reinstall
+      @remove lastNode.pkg, false, true
     manifests = {}
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{tostring node.pkg.version}'..."
@@ -1123,7 +1116,7 @@ modules.hel = class extends modules.default
 
 
   -- Remove packages and its dependants
-  @remove: (manifest, recursiveCall=false) =>
+  @remove: (manifest, recursiveCall=false, noPlan=false) =>
     if recursiveCall
       return super manifest, "hel"
     deps = if not config.get("hel", {}, true).get("remove_dependants", true)
@@ -1132,16 +1125,17 @@ modules.hel = class extends modules.default
       }
     else
       @getPackageDependants manifest.name
-    pkgPlan {
-      remove: ["hel:#{node.pkg.name}@#{node.manifest.version}" for node in *deps]
-    }
+    unless noPlan
+      pkgPlan {
+        remove: ["hel:#{node.manifest.name}@#{node.manifest.version}" for node in *deps]
+      }
     for dep in *deps
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
       try @remove dep.manifest, true
     true
 
   @info: public (pkg, specString="*") =>
-    log.fatal "Usage: hpm hel:info <package name> [<version specification>]" unless pkg
+    log.fatal "Usage: hpm hel:info <package name> [<version specification>]" if empty pkg
     specString = "*" if empty(specString)
     log.print "Creating version specification for #{specString} ..."
     success, versionSpec = pcall -> semver.Spec specString
@@ -1152,14 +1146,14 @@ modules.hel = class extends modules.default
 
     message = {}
     insert message, "- Package name:   #{spec.name}"
-    insert message, "- Description:\n#{spec.description}\n"
+    insert message, "- Description:\n#{spec.description}"
     insert message, "- Package owners: #{table.concat spec.owners, ", "}"
     insert message, "- Authors:\n#{table.concat ["  - #{x}" for x in *spec.authors], "\n"}"
     insert message, "- License:        #{spec.license}"
     insert message, "- Versions:       #{tableLen spec.versions}, latest: #{data.version}"
     insert message, "  - Files:        #{#data.files}"
     insert message, "  - Depends:      #{table.concat ["#{x.name}@#{x.version}" for x in *data.dependencies]}"
-    insert message, "  - Changes:\n#{spec.versions[data.version].changes}\n"
+    insert message, "  - Changes:\n#{spec.versions[data.version].changes}"
     insert message, "- Stats:"
     insert message, "  - Views:        #{spec.stats.views}"
     insert message, "  - Downloads:    #{spec.stats.downloads}"
@@ -1439,16 +1433,20 @@ modules.oppm = class extends modules.default
           insert result, file
     result
 
-  @install: (name, meta, save=false) =>
+  @install: (name, meta, reinstall=false, save=false) =>
     dependencyGraph = try @resolveDependencies name
     pkgPlan {
-      install: ["oppm:#{node}" for node in *dependencyGraph]
+      install: ["oppm:#{node}" for node in *dependencyGraph when not reinstall or node != name]
+      reinstall: reinstall and { "oppm:#{name}" } or nil
     }
     manifests = {}
     stats = {
       filesInstalled: 0,
       packagesInstalled: 0
     }
+    if reinstall
+      manifest = try loadManifest name, nil, "oppm"
+      @remove manifest, false, true
     for node in *dependencyGraph
       log.print "Installing '#{node}'..."
       prefix = if save then "./#{node}/" else "/"
@@ -1472,7 +1470,7 @@ modules.oppm = class extends modules.default
       }
     else
       @getPackageDependants manifest.name
-    if noPlan
+    unless noPlan
       pkgPlan {
         remove: ["oppm:#{node.name}" for node in *deps]
       }
@@ -1482,7 +1480,7 @@ modules.oppm = class extends modules.default
     true
 
   @save: (name, meta) =>
-    @install name, meta, true
+    @install name, meta, false, true
 
   @cache: public (command, ...) =>
     switch command
@@ -1572,20 +1570,21 @@ installPackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
   source = "hel" if empty source
   -- Check if this package was already installed
-  manifest, reason = loadManifest name, nil, source
+  reinstallFlag = false
+  manifest = loadManifest name, nil, source
   if manifest
     if not options.r
       log.print "'#{name}' is already installed, skipping..."
       return
     else
-      removePackage source, name
+      reinstallFlag = true
   -- Install
-  result, reason = callModuleMethod getModuleBy(source), "install", name, meta
+  result, reason = callModuleMethod getModuleBy(source), "install", name, meta, reinstallFlag
   if result
     for manifest in *result
       success, reason = saveManifest manifest, source
       if success
-        log.info "Saved the manifest for '#{name}' package."
+        log.info "Saved the manifest for '#{manifest.name}' package."
       else
         log.error "Couldn't save the manifest for '#{name}' package: #{reason}."
   else
