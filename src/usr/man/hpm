@@ -40,6 +40,9 @@ METHOD-SPECIFIC OPTIONS
       Reinstall the package: remove it first, and then install.
 
 MODULE-SPECIFIC METHODS
+  hel:info <package name> [<version specification>]
+    Print information about the package.
+
   oppm:autoremove
     Find packages that were installed as dependencies, and aren't needed now.
 

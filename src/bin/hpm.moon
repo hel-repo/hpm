@@ -1141,6 +1141,7 @@ modules.hel = class extends modules.default
     true
 
   @info: public (pkg, specString="*") =>
+    log.fatal "Usage: hpm hel:info <package name> [<version specification>]" unless pkg
     specString = "*" if empty(specString)
     log.print "Creating version specification for #{specString} ..."
     success, versionSpec = pcall -> semver.Spec specString
