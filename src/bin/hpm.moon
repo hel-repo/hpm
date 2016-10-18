@@ -981,7 +981,7 @@ modules.hel = class extends modules.default
 
 
   @getPackageSpec: (name) =>
-    log.print "Downloading package data for #{name} ..."
+    log.info "Downloading package data for #{name} ..."
     status, response = download @URL .. "packages/" .. name
     log.fatal "HTTP request error: " .. response unless status
     jsonData = ""
@@ -1023,7 +1023,6 @@ modules.hel = class extends modules.default
         \write contents
         \close!
 
-    log.print "Done."
     { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies, manual: isManuallyInstalled }
 
 
@@ -1096,7 +1095,7 @@ modules.hel = class extends modules.default
   -- Get package from repository, then parse, and install
   @install: (name, specString="*", reinstall=false, save) =>
     specString = "*" if empty(specString)
-    log.print "Creating version specification for #{specString} ..."
+    log.info "Creating version specification for #{specString} ..."
     success, spec = pcall -> semver.Spec specString
     log.fatal "Could not parse the version specification: #{spec}!" unless success
 
@@ -1456,7 +1455,6 @@ modules.oppm = class extends modules.default
       if stats.packagesInstalled != 0
         insert manifests, manifest
 
-    log.print "Done."
     log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
     manifests
@@ -1553,7 +1551,6 @@ modules.local = class extends modules.default
       result, reason = copy concat(path, file.name), concat(file.dir, file.name)
       log.error "Cannot copy '#{file.name}' file: #{reason}" unless result
 
-    log.print "Done."
     { manifest }
 
 
@@ -1564,7 +1561,6 @@ removePackage = (source, name) ->
   source = "hel" if empty source
   manifest = try loadManifest name, nil, source
   try callModuleMethod getModuleBy(source), "remove", manifest
-  log.print "Done removal."
 
 installPackage = (source, name, meta) ->
   log.fatal "Incorrect package name!" unless name
