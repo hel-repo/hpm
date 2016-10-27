@@ -1155,7 +1155,6 @@ modules.hel = class extends modules.default
     insert message, "  - Changes:\n#{spec.versions[data.version].changes}"
     insert message, "- Stats:"
     insert message, "  - Views:        #{spec.stats.views}"
-    insert message, "  - Downloads:    #{spec.stats.downloads}"
     insert message, "- Creation date:  #{spec.stats.date.created} UTC"
     insert message, "- Last updated:   #{spec.stats.date["last-updated"]} UTC"
 
@@ -1502,7 +1501,7 @@ modules.oppm = class extends modules.default
     for file in list
       manifest = try loadManifest file, nil, "oppm"
       unless manifest.manual
-        deps = @getPackageDependants(file)
+        deps = @getPackageDependants file
         if #deps == 1
           insert toRemove, file
           insert sorted, file
