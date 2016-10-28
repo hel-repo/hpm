@@ -576,7 +576,6 @@ log =
   info: (...) -> print table.concat [tostring x for x in *{...}], "\t" if options.v
   print: (...) -> print table.concat [tostring x for x in *{...}], "\t" unless options.q
   error: (...) ->
-    exitCode = 2
     stderr\write table.concat([tostring x for x in *{...}], "\t") .. '\n' unless options.q
   fatal: (...) ->
     stderr\write table.concat([tostring x for x in *{...}], "\t") .. '\n' unless options.q
