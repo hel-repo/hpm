@@ -987,7 +987,7 @@ modules.hel = class extends modules.default
     for chunk in response do jsonData ..= chunk
     decoded = json\decode jsonData
     log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
-    decoded
+    decoded.data
 
 
   @rawInstall: (pkgData, isManuallyInstalled=false, save=false) =>
