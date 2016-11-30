@@ -748,6 +748,15 @@ findCustomCommand = (name) ->
         if type(mod[command]) == "table" and mod[command].__public == true
           insert candidates, { class: mod, module: modName, method: mod[command] }
     if #candidates > 1
+      -- Choose hel module there are multiple candidates
+      pos = nil
+      for k, mod in pairs candidates
+        if mod.module == "hel"
+          pos = k
+          break
+      if pos
+        candidates = {candidates[pos]}
+    if #candidates > 1
       log.print "Ambiguous choice: method #{command} is implemented in the following modules:"
       for mod in *candidates
         log.print " * #{mod.module}"
