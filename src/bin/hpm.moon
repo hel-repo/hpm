@@ -818,7 +818,7 @@ loadManifest = (name, path, mod="hel") ->
   if existsFile path
     file, reason = io.open path, "rb"
     if file
-      manifest = unserialize file\read "*all"
+      manifest = try unserialize file\read "*all"
       file\close!
       manifest
     else false, "Failed to open manifest for '#{name}' package: #{reason}"
@@ -1041,11 +1041,18 @@ modules.hel = class extends modules.default
 
   -- Get an ordered list of packages for installation, resolving dependencies.
   @resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
+    local data
+    localPkg = false
+    if type(name) == "table"
+      data = name
+      name = data.name
+      localPkg = true
     insert unresolved, { :name, version: "" }
     manifest = loadManifest name, nil, "hel"
-    if not manifest or not verSpec\match semver.Version(manifest.version)
-      spec = @getPackageSpec name
-      data = @parsePackageJSON spec, verSpec
+    if localPkg or not manifest or not verSpec\match semver.Version(manifest.version)
+      if not data
+        spec = @getPackageSpec name
+        data = @parsePackageJSON spec, verSpec
       unresolved[#unresolved].version = data.version
       for dep in *data.dependencies
         isResolved = false
@@ -1061,9 +1068,9 @@ modules.hel = class extends modules.default
               break
           if key
             if unresolved[key].version == dep.version
-              log.fatal "Circular dependencies detected: '#{name}@#{tostring data.version}' depends on '#{dep.name}@#{tostring dep.version}', and '#{unresolved[key].name}@#{tostring unresolved[key].version}' depends on '#{name}@#{tostring spec.version}'."
+              log.fatal "Circular dependencies detected: '#{name}@#{data.version}' depends on '#{dep.name}@#{dep.version}', and '#{unresolved[key].name}@#{unresolved[key].version}' depends on '#{name}@#{data.version}'."
             else
-              log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{tostring dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{tostring spec.version}'."
+              log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
           @resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
       insert resolved, { pkg: data }
     else
@@ -1101,8 +1108,39 @@ modules.hel = class extends modules.default
 
 
   -- Get package from repository, then parse, and install
-  @install: (name, specString="*", reinstall=false, save) =>
-    specString = "*" if empty(specString)
+  @install: (name, specString, reinstall=false, save) =>
+    if options.l or options.local then
+      path = name
+      unless empty specString
+        path ..= "@" .. specString
+      path = shell.resolve path
+      manifest = try loadManifest path, concat path, "manifest"
+      dependencyGraph = @resolveDependencies manifest, nil
+
+      onlyDeps = options.d or options.onlyDeps
+
+      pkgPlan {
+        install: ["hel:#{node.pkg.name}@#{node.pkg.version}" for node in *dependencyGraph when node.pkg.name != manifest.name or not onlyDeps]
+      }
+
+      manifests = for i = 1, #dependencyGraph - 1, 1
+        node = dependencyGraph[i]
+        log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
+        @rawInstall node.pkg, false, save
+
+      if not onlyDeps
+        log.print "Installing '#{manifest.name}@#{manifest.version}'..."
+
+        -- just copy/paste
+        for key, file in pairs manifest.files
+          result, reason = copy concat(path, file.url), concat(file.dir, file.name)
+          log.fatal "Cannot copy file '#{file.name}': #{reason}" unless result
+
+        table.insert manifests, manifest
+
+      return manifests
+
+    specString = "*" if empty specString
     log.info "Creating version specification for #{specString} ..."
     success, spec = pcall -> semver.Spec specString
     log.fatal "Could not parse the version specification: #{spec}!" unless success
@@ -1117,7 +1155,7 @@ modules.hel = class extends modules.default
       @remove lastNode.pkg, false, true
     manifests = {}
     for node in *dependencyGraph
-      log.print "Installing '#{node.pkg.name}@#{tostring node.pkg.version}'..."
+      log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
       insert manifests, @rawInstall node.pkg, name == node.pkg.name, save
     manifests
 
@@ -1545,20 +1583,6 @@ modules.oppm = class extends modules.default
 
     log.print "Done."
     true
-
-
--- Local-install module
-modules.local = class extends modules.default
-  @install: (path, version) =>
-    -- try to load data from local directory-package
-    manifest = loadManifest path, concat path, "manifest"
-    -- copy files to corresponding positions
-    for key, file in pairs(manifest.files)
-      log.print "Install '#{file.name}' ... "
-      result, reason = copy concat(path, file.name), concat(file.dir, file.name)
-      log.error "Cannot copy '#{file.name}' file: #{reason}" unless result
-
-    { manifest }
 
 
 -- Commands implementation -----------------------------------------------------
