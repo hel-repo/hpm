@@ -38,6 +38,11 @@ METHOD-SPECIFIC OPTIONS
   install
     -r
       Reinstall the package: remove it first, and then install.
+      If you specify the version of package to install (like, `hpm install package@1.1.0`), the package can be upgraded and downgraded.
+      Be careful, though! Dependencies are not resolved. The depsolver will be added in future updated.
+
+    -l, --local
+      Install the package using the `manifest` file in the directory given instead of package name.
 
 MODULE-SPECIFIC METHODS
   hel:info <package name> [<version specification>]
@@ -45,12 +50,45 @@ MODULE-SPECIFIC METHODS
 
   oppm:autoremove
     Find packages that were installed as dependencies, and aren't needed now.
+    Be careful! Packages that got installed as dependencies of a local package will be removed.
 
   oppm:cache update
     Fetch the latest package manifests from OpenPrograms repositories.
 
   oppm:cache fix
     Find and remove redundant filesystem nodes in the cache directory.
+
+MANIFEST
+  For easier package management you can create the file called `manifest` (usually you want to create it in the root directory of project). The following is the manifest template.
+
+{name="pkg-name",
+ version="1.0.2-dev",
+ dependencies={
+  {name="dep-name", version="^1.5.2", type="required"},
+  ...
+ },
+ files={
+  {url="docs/program", dir="/usr/man", name="program"},
+  ...
+ }}
+
+  name
+    The package name.
+
+  version
+    The package version.
+
+  dependencies
+    The dependencies of package.
+    - `name` is dependency name.
+    - `version` is dependency version requirement string.
+    - `type` is currently unused but keeped for future updates. Should be `required`.
+
+  files
+    The list of files of the package.
+    - `url` is the path *relative to the manifest file*.
+    - `dir` is the directory to install the file to.
+    - `name` is the filename that the file will have after installation.
 
 FILES
   /etc/hpm/hpm.cfg     configuration file
