@@ -598,7 +598,7 @@ try = (result, reason) ->
 
 -- v -- value, c -- converted, t -- type
 checkType = (v, t, c) ->
-  log.fatal "Value '#{v}' is #{type c}, however, a #{t} is excepted." unless type v == t
+  log.fatal "Value '#{v}' is #{type c}, however, a #{t} is expected." unless type v == t
   c
 
 argNumber = (v) -> checkType v, "number", tonumber v
