@@ -1304,7 +1304,10 @@ modules.oppm = class extends modules.default
         if empty data
           log.error "Could not fetch '#{repo}' at '#{repoData.repo}'"
           continue
-        repoPrograms = unserialize data
+        repoPrograms, reason = unserialize data
+        if not repoPrograms
+          log.error "Manifest '#{repo}' at '#{repoData.repo}' is malformed: #{reason}"
+          continue
         for prg, prgData in pairs repoPrograms
           if prg\match "[^A-Za-z0-9._-]"
             log.error "Package name contains illegal characters: #{repo}:#{prg}!"
@@ -1329,12 +1332,12 @@ modules.oppm = class extends modules.default
             k = key
             break
       if k
-        oldFiles[k] = nil
+        table.remove oldFiles, k
       else
         insert newFiles, concat repo, name
     log.print "Removing old cache files ..."
-    for { :fullPath } in *oldFiles
-      remove fullPath
+    for { :path } in *oldFiles
+      remove path
     log.print "Fixing bad cache nodes ..."
     @fixCache!
     log.print "- #{#programs} program#{plural #programs} cached."
