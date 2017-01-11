@@ -1040,42 +1040,36 @@ modules.hel = class extends modules.default
 
 
   -- Get an ordered list of packages for installation, resolving dependencies.
-  @resolveDependencies: (name, verSpec, resolved={}, unresolved={}) =>
-    local data
-    localPkg = false
-    if type(name) == "table"
-      data = name
-      name = data.name
-      localPkg = true
-    insert unresolved, { :name, version: "" }
-    manifest = loadManifest name, nil, "hel"
-    if localPkg or not manifest or not verSpec\match semver.Version(manifest.version)
-      if not data
+  @resolveDependencies: (packages, resolved={}, unresolved={}) =>
+    for { :name, :version } in *packages
+      insert unresolved, { :name, version: "" }
+      manifest = loadManifest name, nil, "hel"
+      if not manifest or not version\match semver.Version manifest.version
         spec = @getPackageSpec name
-        data = @parsePackageJSON spec, verSpec
-      unresolved[#unresolved].version = data.version
-      for dep in *data.dependencies
-        isResolved = false
-        for pkg in *resolved
-          if pkg.pkg.name == dep.name
-            isResolved = true
-            break
-        if not isResolved
-          key = nil
-          for k, pkg in pairs unresolved
-            if pkg.name == dep.name
-              key = k
+        data = @parsePackageJSON spec, version
+        unresolved[#unresolved].version = data.version
+        for dep in *data.dependencies
+          isResolved = false
+          for pkg in *resolved
+            if pkg.pkg.name == dep.name
+              isResolved = true
               break
-          if key
-            if unresolved[key].version == dep.version
-              log.fatal "Circular dependencies detected: '#{name}@#{data.version}' depends on '#{dep.name}@#{dep.version}', and '#{unresolved[key].name}@#{unresolved[key].version}' depends on '#{name}@#{data.version}'."
-            else
-              log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
-          @resolveDependencies dep.name, semver.Spec(dep.version), resolved, unresolved
-      insert resolved, { pkg: data }
-    else
-      insert resolved, { pkg: manifest }
-    unresolved[#unresolved] = nil
+          if not isResolved
+            key = nil
+            for k, pkg in pairs unresolved
+              if pkg.name == dep.name
+                key = k
+                break
+            if key
+              if unresolved[key].version == dep.version
+                log.fatal "Circular dependencies detected: '#{name}@#{data.version}' depends on '#{dep.name}@#{dep.version}', and '#{unresolved[key].name}@#{unresolved[key].version}' depends on '#{name}@#{data.version}'."
+              else
+                log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
+            @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, resolved, unresolved
+        insert resolved, { pkg: data }
+      else
+        insert resolved, { pkg: manifest }
+      unresolved[#unresolved] = nil
     resolved
 
 
@@ -1107,26 +1101,31 @@ modules.hel = class extends modules.default
     resolved
 
 
-  -- Get package from repository, then parse, and install
-  @install: (name, specString, reinstall=false, save) =>
+  @install: public (...) =>
     if options.l or options.local then
-      path = name
-      unless empty specString
-        path ..= "@" .. specString
-      path = shell.resolve path
+      path = shell.resolve ...
       manifest = try loadManifest path, concat path, "manifest"
-      dependencyGraph = @resolveDependencies manifest, nil
+      dependencyGraph = @resolveDependencies manifest.depends, nil
 
       onlyDeps = options.d or options.onlyDeps
 
-      pkgPlan {
-        install: ["hel:#{node.pkg.name}@#{node.pkg.version}" for node in *dependencyGraph when node.pkg.name != manifest.name or not onlyDeps]
-      }
+      toInstall = {}
+      for node in *dependencyGraph
+        insert toInstall, "#{node.pkg.name}@#{node.pkg.version}"
+      unless onlyDeps
+        insert toInstall, "#{manifest.name}@#{manifest.version}"
 
-      manifests = for i = 1, #dependencyGraph - 1, 1
+      pkgPlan { install: toInstall }
+
+      for i = 1, #dependencyGraph, 1
         node = dependencyGraph[i]
         log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
-        @rawInstall node.pkg, false, save
+        manifest = @rawInstall node.pkg, false, false
+        success, reason = saveManifest manifest, "hel"
+        if success
+          log.info "Saved the manifest of '#{manifest.name}'."
+        else
+          log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
 
       if not onlyDeps
         log.print "Installing '#{manifest.name}@#{manifest.version}'..."
@@ -1138,28 +1137,64 @@ modules.hel = class extends modules.default
           result, reason = copy concat(path, file.url), concat(file.dir, file.name)
           log.fatal "Cannot copy file '#{file.name}': #{reason}" unless result
 
-        table.insert manifests, manifest
+        success, reason = saveManifest manifest, "hel"
+        if success
+          log.info "Saved the manifest of '#{manifest.name}'."
+        else
+          log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
 
-      return manifests
 
-    specString = "*" if empty specString
-    log.info "Creating version specification for #{specString} ..."
-    success, spec = pcall -> semver.Spec specString
-    log.fatal "Could not parse the version specification: #{spec}!" unless success
+    packages = {}
+    for x in *{...}
+      name, version = x\match "(.+)@?(.-)"
+      version = "*" if empty version
+      log.info "Creating version specification for #{version} ..."
+      success, spec = pcall -> semver.Spec version
+      log.fatal "Could not parse the version specification: #{spec}!" unless success
 
-    dependencyGraph = @resolveDependencies name, spec
-    lastNode = dependencyGraph[#dependencyGraph]
+      insert packages, { :name, version: spec }
+    @_install packages, false
+
+  @_install: (packages, save=false) =>
+    reinstall = options.r or options.reinstall
+    dependencyGraph = @resolveDependencies packages
+
+    toReinstall = {}
+    toInstall = {}
+    for node in *dependencyGraph
+      if reinstall
+        found = false
+        for pkg in *packages
+          if pkg.name == node.pkg.name
+            found = true
+            break
+        if found
+          insert toReinstall, "#{node.pkg.name}@#{node.pkg.version}"
+          continue
+      insert toInstall, "#{node.pkg.name}@#{node.pkg.version}"
+
     pkgPlan {
-      install: ["hel:#{node.pkg.name}@#{node.pkg.version}" for node in *dependencyGraph when not reinstall or node.pkg.name != name]
-      reinstall: reinstall and { "hel:#{lastNode.pkg.name}@#{lastNode.pkg.version}" }
+      install: toInstall,
+      reinstall: toReinstall
     }
+
     if reinstall
-      @remove lastNode.pkg, false, true
-    manifests = {}
+      for node in *dependencyGraph
+        found = false
+        for pkg in *packages
+          if pkg.name == node.pkg.name
+            found = true
+            break
+        if found
+          @remove node.pkg, false, true
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
-      insert manifests, @rawInstall node.pkg, name == node.pkg.name, save
-    manifests
+      manifest = @rawInstall node.pkg, isin(node.pkg.name, packages), save
+      success, reason = saveManifest manifest, "hel"
+      if success
+        log.info "Saved the manifest of '#{manifest.name}'."
+      else
+        log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
 
 
   -- Remove packages and its dependants
@@ -1482,7 +1517,7 @@ modules.oppm = class extends modules.default
           insert result, file
     result
 
-  @install: (name, meta, reinstall=false, save=false) =>
+  @_install: (name, meta, reinstall=false, save=false) =>
     dependencyGraph = try @resolveDependencies name
     pkgPlan {
       install: ["oppm:#{node}" for node in *dependencyGraph when not reinstall or node != name]
@@ -1662,9 +1697,6 @@ parseArguments = (...) ->
 -- Process given command and arguments
 process = ->
   switch args[1]
-    when "install"
-      log.fatal "No package(s) provided!" if #args < 2
-      for i = 2, #args do installPackage parsePackageName args[i]
     when "save"
       log.fatal "No package(s) provided!" if #args < 2
       for i = 2, #args do savePackage parsePackageName args[i]
