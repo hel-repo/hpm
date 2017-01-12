@@ -3,6 +3,7 @@ env:
   global:
   - LUAROCKS=2.3.0
   - LUA=lua5.1
+  - BUILD='release'
 addons:
   apt:
     packages:
@@ -14,6 +15,7 @@ before_install:
 - source .travis/setenv_lua.sh
 install:
 - luarocks install moonscript
+- source .travis/install-luaminify.sh
 script:
 - bash ./build.sh
 after_success:
