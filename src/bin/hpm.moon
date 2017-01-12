@@ -1526,7 +1526,6 @@ modules.oppm = class extends modules.default
       -- we could also do `reinstall and packages or nil`, but that would not keep the resolution order.
       reinstall: reinstall and [node for node in *dependencyGraph when isin node, packages] or nil
     }
-    manifests = {}
     stats = {
       filesInstalled: 0,
       packagesInstalled: 0
@@ -1542,11 +1541,14 @@ modules.oppm = class extends modules.default
       stats.filesInstalled += statsPart.filesInstalled
       stats.packagesInstalled += statsPart.packagesInstalled
       if stats.packagesInstalled != 0
-        insert manifests, manifest
+        success, reason = saveManifest manifest, "oppm"
+        if success
+          log.info "Saved the manifest of '#{manifest.name}'."
+        else
+          log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
 
     log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
-    manifests
 
   @install: public (...) =>
     @_install {...}, false
