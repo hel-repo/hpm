@@ -1451,33 +1451,34 @@ modules.oppm = class extends modules.default
       manual: isManuallyInstalled
     }, stats
 
-  @resolveDependencies: (name, resolved={}, unresolved={}) =>
+  @resolveDependencies: (packages, resolved={}, unresolved={}) =>
     cacheList = @listCache!
-    unresolved[name] = true
-    manifest = loadManifest name, nil, "oppm"
-    if not manifest
-      local data
-      for package in *cacheList
-        { :pkg } = package
-        if pkg == name
-          data = package
-          break
-      return false, "Unknown package: #{name}" unless data
-      if data.data.data.dependencies
-        for dep in pairs data.data.data.dependencies
-          isResolved = false
-          for pkg in *resolved
-            if pkg == dep
-              isResolved = true
-              break
-          unless isResolved
-            if unresolved[dep]
-              log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep}', and '#{dep}' depends on '#{name}'."
-            @resolveDependencies dep, resolved, unresolved
-      insert resolved, name
-    else
-      insert resolved, name
-    unresolved[name] = nil
+    for name in *packages
+      unresolved[name] = true
+      manifest = loadManifest name, nil, "oppm"
+      if not manifest
+        local data
+        for package in *cacheList
+          { :pkg } = package
+          if pkg == name
+            data = package
+            break
+        return false, "Unknown package: #{name}" unless data
+        if data.data.data.dependencies
+          for dep in pairs data.data.data.dependencies
+            isResolved = false
+            for pkg in *resolved
+              if pkg == dep
+                isResolved = true
+                break
+            unless isResolved
+              if unresolved[dep]
+                log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep}', and '#{dep}' depends on '#{name}'."
+              @resolveDependencies {dep}, resolved, unresolved
+        insert resolved, name
+      else
+        insert resolved, name
+      unresolved[name] = nil
     resolved
 
   @getPackageDependants: (name, resolved={}, unresolved={}) =>
@@ -1517,11 +1518,13 @@ modules.oppm = class extends modules.default
           insert result, file
     result
 
-  @_install: (name, meta, reinstall=false, save=false) =>
-    dependencyGraph = try @resolveDependencies name
+  @_install: (packages, save=false) =>
+    reinstall = options.r or options.reinstall
+    dependencyGraph = try @resolveDependencies packages
     pkgPlan {
-      install: ["oppm:#{node}" for node in *dependencyGraph when not reinstall or node != name]
-      reinstall: reinstall and { "oppm:#{name}" } or nil
+      install: [node for node in *dependencyGraph when not reinstall or not isin node, packages]
+      -- we could also do `reinstall and packages or nil`, but that would not keep the resolution order.
+      reinstall: reinstall and [node for node in *dependencyGraph when isin node, packages] or nil
     }
     manifests = {}
     stats = {
@@ -1529,12 +1532,13 @@ modules.oppm = class extends modules.default
       packagesInstalled: 0
     }
     if reinstall
-      manifest = try loadManifest name, nil, "oppm"
-      @remove manifest, false, true
+      for name in *packages
+        manifest = try loadManifest name, nil, "oppm"
+        @remove manifest, false, true
     for node in *dependencyGraph
       log.print "Installing '#{node}'..."
       prefix = if save then "./#{node}/" else "/"
-      manifest, statsPart = @rawInstall node, prefix, node == name, save
+      manifest, statsPart = @rawInstall node, prefix, isin(node, packages), save
       stats.filesInstalled += statsPart.filesInstalled
       stats.packagesInstalled += statsPart.packagesInstalled
       if stats.packagesInstalled != 0
@@ -1543,6 +1547,9 @@ modules.oppm = class extends modules.default
     log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
     manifests
+
+  @install: public (...) =>
+    @_install {...}, false
 
   @remove: (manifest, recursiveCall=false, noPlan=false) =>
     if recursiveCall
