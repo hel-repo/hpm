@@ -915,7 +915,7 @@ pkgPlan = (plan) ->
     if num != #msg
       log.print ""
 
-  if complexity > 1
+  if complexity > 0
     unless confirm!
       exit 7
 
@@ -1186,7 +1186,12 @@ modules.hel = class extends modules.default
       @_remove manifests, true, false
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
-      manifest = @rawInstall node.pkg, isin(node.pkg.name, packages), save
+      manual = false
+      for pkg in *packages
+        if pkg.name == node.pkg.name
+          manual = true
+          break
+      manifest = @rawInstall node.pkg, manual, save
       success, reason = saveManifest manifest, "hel"
       if success
         log.info "Saved the manifest of '#{manifest.name}'."
