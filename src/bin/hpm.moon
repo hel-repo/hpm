@@ -1034,11 +1034,6 @@ modules.hel = class extends modules.default
     { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies, manual: isManuallyInstalled }
 
 
-  -- Save package locally
-  @save: (name, version) =>
-    @install name, version, false, true
-
-
   -- Get an ordered list of packages for installation, resolving dependencies.
   @resolveDependencies: (packages, resolved={}, unresolved={}) =>
     for { :name, :version } in *packages
@@ -1153,10 +1148,9 @@ modules.hel = class extends modules.default
       log.fatal "Could not parse the version specification: #{spec}!" unless success
 
       insert packages, { :name, version: spec }
-    @_install packages, false
 
-  @_install: (packages, save=false) =>
     reinstall = options.r or options.reinstall
+    save = options.s or options.save
     dependencyGraph = @resolveDependencies packages
 
     toReinstall = {}
@@ -1518,8 +1512,10 @@ modules.oppm = class extends modules.default
           insert result, file
     result
 
-  @_install: (packages, save=false) =>
+  @install: public (...) =>
+    packages = {...}
     reinstall = options.r or options.reinstall
+    save = options.s or options.save
     dependencyGraph = try @resolveDependencies packages
     pkgPlan {
       install: [node for node in *dependencyGraph when not reinstall or not isin node, packages]
@@ -1550,9 +1546,6 @@ modules.oppm = class extends modules.default
     log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
 
-  @install: public (...) =>
-    @_install {...}, false
-
   @remove: (manifest, recursiveCall=false, noPlan=false) =>
     if recursiveCall
       return super manifest, "oppm"
@@ -1570,9 +1563,6 @@ modules.oppm = class extends modules.default
       log.print "Removing '#{dep.manifest.name}' ..."
       try @remove dep.manifest, true
     true
-
-  @save: (name, meta) =>
-    @install name, meta, false, true
 
   @cache: public (command, ...) =>
     switch command
@@ -1666,21 +1656,6 @@ installPackage = (source, name, meta) ->
   else
     log.error "Couldn't install package: #{reason}"
 
-savePackage = (source, name, meta) ->
-  log.fatal "Incorrect package name!" unless name
-  source = "hel" if empty source
-  log.fatal "No need to save already saved package..." if source == "local"
-  result, reason = callModuleMethod getModuleBy(source), "save", name, meta
-  if result
-    for manifest in *result
-      success, reason = saveManifest manifest, "", "./#{manifest.name}/", "manifest"
-      if success
-        log.info "Saved the manifest for local '#{name}' package."
-      else
-        log.error "Couldn't save manifest for local '#{name}' package: #{reason}."
-  else
-    log.error "Couldn't install package: #{reason}."
-
 printPackageList = ->
   modList = try listFiles distPath
   empty = true
@@ -1706,9 +1681,6 @@ parseArguments = (...) ->
 -- Process given command and arguments
 process = ->
   switch args[1]
-    when "save"
-      log.fatal "No package(s) provided!" if #args < 2
-      for i = 2, #args do savePackage parsePackageName args[i]
     when "remove"
       log.fatal "No package(s) provided!" if #args < 2
       for i = 2, #args do removePackage parsePackageName args[i]
