@@ -987,7 +987,6 @@ modules.hel = class extends modules.default
 
     data
 
-
   @getPackageSpec: (name) =>
     log.info "Downloading package data for #{name} ..."
     status, response = download @URL .. "packages/" .. name
@@ -997,7 +996,6 @@ modules.hel = class extends modules.default
     decoded = json\decode jsonData
     log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
     decoded.data
-
 
   @rawInstall: (pkgData, isManuallyInstalled=false, save=false) =>
     prefix = if save
@@ -1033,7 +1031,6 @@ modules.hel = class extends modules.default
 
     { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies, manual: isManuallyInstalled }
 
-
   -- Get an ordered list of packages for installation, resolving dependencies.
   @resolveDependencies: (packages, resolved={}, unresolved={}) =>
     for { :name, :version } in *packages
@@ -1061,40 +1058,58 @@ modules.hel = class extends modules.default
               else
                 log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
             @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, resolved, unresolved
-        insert resolved, { pkg: data }
+        isResolved = false
+        for pkg in *resolved
+          if pkg.pkg.name == name
+            isResolved = true
+            break
+        if not isResolved
+          insert resolved, { pkg: data }
       else
-        insert resolved, { pkg: manifest }
+        isResolved = false
+        for pkg in *resolved
+          if pkg.pkg.name == name
+            isResolved = true
+            break
+        if not isResolved
+          insert resolved, { pkg: manifest }
       unresolved[#unresolved] = nil
     resolved
 
-
   -- Get all packages that depend on the given, and return a list of the dependent packages.
-  @getPackageDependants: (name, resolved={}, unresolved={}) =>
-    insert unresolved, { :name }
-    manifest = loadManifest name, nil, "hel"
-    if manifest
-      insert resolved, { :name, :manifest }
-      list = try listFiles concat distPath, "hel"
-      for file in list
-        manifest = try loadManifest file, nil, "hel"
-        for dep in *manifest.dependencies
-          if dep.name == name
-            isResolved = false
-            for pkg in *resolved
-              if pkg.name == file
-                isResolved = true
-                break
-            if not isResolved
-              for pkg in *unresolved
-                if pkg.name == file
-                  log.fatal "Circular dependencies detected: #{file}"
-              @getPackageDependants file, resolved, unresolved
-    else
-      log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
+  @getPackageDependants: (packages, resolved={}, unresolved={}) =>
+    for name in *packages
+      insert unresolved, { :name }
+      manifest = loadManifest name, nil, "hel"
+      if manifest
+        isResolved = false
+        for pkg in *resolved
+          if pkg.name == name
+            isResolved = true
+            break
+        if not isResolved
+          insert resolved, { :name, :manifest }
+        else
+          list = try listFiles concat distPath, "hel"
+          for file in list
+            manifest = try loadManifest file, nil, "hel"
+            for dep in *manifest.dependencies
+              if dep.name == name
+                isResolved = false
+                for pkg in *resolved
+                  if pkg.name == file
+                    isResolved = true
+                    break
+                if not isResolved
+                  for pkg in *unresolved
+                    if pkg.name == file
+                      log.fatal "Circular dependencies detected: #{file}"
+                  @getPackageDependants {file}, resolved, unresolved
+      else
+        log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
 
-    unresolved[#unresolved] = nil
+      unresolved[#unresolved] = nil
     resolved
-
 
   @install: public (...) =>
     if options.l or options.local then
@@ -1138,7 +1153,6 @@ modules.hel = class extends modules.default
         else
           log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
 
-
     packages = {}
     for x in *{...}
       name, version = x\match "(.+)@?(.-)"
@@ -1173,14 +1187,7 @@ modules.hel = class extends modules.default
     }
 
     if reinstall
-      for node in *dependencyGraph
-        found = false
-        for pkg in *packages
-          if pkg.name == node.pkg.name
-            found = true
-            break
-        if found
-          @remove node.pkg, false, true
+      @_remove {...}, true
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
       manifest = @rawInstall node.pkg, isin(node.pkg.name, packages), save
@@ -1190,24 +1197,27 @@ modules.hel = class extends modules.default
       else
         log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
 
+  @remove: public (...) =>
+    packages = {...}
+    manifests = {}
+    for pkg in *packages
+      manifest = try loadManifest pkg, nil, "hel"
+      insert manifests, manifest
+    @_remove manifests, false
 
   -- Remove packages and its dependants
-  @remove: (manifest, recursiveCall=false, noPlan=false) =>
-    if recursiveCall
-      return super manifest, "hel"
+  @_remove: (manifests, noPlan=false) =>
     deps = if not config.get("hel", {}, true).get("remove_dependants", true)
-      {
-        { name: manifest.name, :manifest }
-      }
+      [{ name: manifest.name, :manifest } for manifest in *manifests]
     else
-      @getPackageDependants manifest.name
+      @getPackageDependants [manifest.name for manifest in *manifests]
     unless noPlan
       pkgPlan {
         remove: ["hel:#{node.manifest.name}@#{node.manifest.version}" for node in *deps]
       }
     for dep in *deps
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
-      try @remove dep.manifest, true
+      try super\remove dep.manifest, "hel"
     true
 
   @info: public (pkg, specString="*") =>
@@ -1626,36 +1636,6 @@ modules.oppm = class extends modules.default
 
 -- Commands implementation -----------------------------------------------------
 
-removePackage = (source, name) ->
-  log.fatal "Incorrect package name!" unless name
-  source = "hel" if empty source
-  manifest = try loadManifest name, nil, source
-  try callModuleMethod getModuleBy(source), "remove", manifest
-
-installPackage = (source, name, meta) ->
-  log.fatal "Incorrect package name!" unless name
-  source = "hel" if empty source
-  -- Check if this package was already installed
-  reinstallFlag = false
-  manifest = loadManifest name, nil, source
-  if manifest
-    if not options.r
-      log.print "'#{name}' is already installed, skipping..."
-      return
-    else
-      reinstallFlag = true
-  -- Install
-  result, reason = callModuleMethod getModuleBy(source), "install", name, meta, reinstallFlag
-  if result
-    for manifest in *result
-      success, reason = saveManifest manifest, source
-      if success
-        log.info "Saved the manifest for '#{manifest.name}' package."
-      else
-        log.error "Couldn't save the manifest for '#{name}' package: #{reason}."
-  else
-    log.error "Couldn't install package: #{reason}"
-
 printPackageList = ->
   modList = try listFiles distPath
   empty = true
@@ -1681,9 +1661,6 @@ parseArguments = (...) ->
 -- Process given command and arguments
 process = ->
   switch args[1]
-    when "remove"
-      log.fatal "No package(s) provided!" if #args < 2
-      for i = 2, #args do removePackage parsePackageName args[i]
     when "list"
       printPackageList!
     when "help"
