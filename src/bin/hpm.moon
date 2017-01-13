@@ -1034,62 +1034,55 @@ modules.hel = class extends modules.default
   -- Get an ordered list of packages for installation, resolving dependencies.
   @resolveDependencies: (packages, resolved={}, unresolved={}) =>
     for { :name, :version } in *packages
-      insert unresolved, { :name, version: "" }
-      manifest = loadManifest name, nil, "hel"
-      if not manifest or not version\match semver.Version manifest.version
-        spec = @getPackageSpec name
-        data = @parsePackageJSON spec, version
-        unresolved[#unresolved].version = data.version
-        for dep in *data.dependencies
-          isResolved = false
-          for pkg in *resolved
-            if pkg.pkg.name == dep.name
-              isResolved = true
-              break
-          if not isResolved
-            key = nil
-            for k, pkg in pairs unresolved
-              if pkg.name == dep.name
-                key = k
+      isResolved = false
+      for pkg in *resolved
+        if pkg.pkg.name == name
+          isResolved = true
+          break
+      unless isResolved
+        insert unresolved, { :name, version: "" }
+        manifest = loadManifest name, nil, "hel"
+        if not manifest or not version\match semver.Version manifest.version
+          spec = @getPackageSpec name
+          data = @parsePackageJSON spec, version
+          unresolved[#unresolved].version = data.version
+          for dep in *data.dependencies
+            isResolved = false
+            for pkg in *resolved
+              if pkg.pkg.name == dep.name
+                isResolved = true
                 break
-            if key
-              if unresolved[key].version == dep.version
-                log.fatal "Circular dependencies detected: '#{name}@#{data.version}' depends on '#{dep.name}@#{dep.version}', and '#{unresolved[key].name}@#{unresolved[key].version}' depends on '#{name}@#{data.version}'."
-              else
-                log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
-            @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, resolved, unresolved
-        isResolved = false
-        for pkg in *resolved
-          if pkg.pkg.name == name
-            isResolved = true
-            break
-        if not isResolved
+            if not isResolved
+              key = nil
+              for k, pkg in pairs unresolved
+                if pkg.name == dep.name
+                  key = k
+                  break
+              if key
+                if unresolved[key].version == dep.version
+                  log.fatal "Circular dependencies detected: '#{name}@#{data.version}' depends on '#{dep.name}@#{dep.version}', and '#{unresolved[key].name}@#{unresolved[key].version}' depends on '#{name}@#{data.version}'."
+                else
+                  log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
+              @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, resolved, unresolved
           insert resolved, { pkg: data }
-      else
-        isResolved = false
-        for pkg in *resolved
-          if pkg.pkg.name == name
-            isResolved = true
-            break
-        if not isResolved
+        else
           insert resolved, { pkg: manifest }
-      unresolved[#unresolved] = nil
+        unresolved[#unresolved] = nil
     resolved
 
   -- Get all packages that depend on the given, and return a list of the dependent packages.
   @getPackageDependants: (packages, resolved={}, unresolved={}) =>
     for name in *packages
-      insert unresolved, { :name }
-      manifest = loadManifest name, nil, "hel"
-      if manifest
-        isResolved = false
-        for pkg in *resolved
-          if pkg.name == name
-            isResolved = true
-            break
-        if not isResolved
+      isResolved = false
+      for pkg in *resolved
+        if pkg.name == name
+          isResolved = true
+          break
+      unless isResolved
+        insert unresolved, { :name }
+        manifest = loadManifest name, nil, "hel"
+        if manifest
           insert resolved, { :name, :manifest }
-        else
           list = try listFiles concat distPath, "hel"
           for file in list
             manifest = try loadManifest file, nil, "hel"
@@ -1105,10 +1098,10 @@ modules.hel = class extends modules.default
                     if pkg.name == file
                       log.fatal "Circular dependencies detected: #{file}"
                   @getPackageDependants {file}, resolved, unresolved
-      else
-        log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
+        else
+          log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
 
-      unresolved[#unresolved] = nil
+        unresolved[#unresolved] = nil
     resolved
 
   @install: public (...) =>
@@ -1187,7 +1180,9 @@ modules.hel = class extends modules.default
     }
 
     if reinstall
-      @_remove {...}, true
+      manifests = for pkg in *packages
+        try loadManifest pkg.name, nil, "hel"
+      @_remove manifests, true
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
       manifest = @rawInstall node.pkg, isin(node.pkg.name, packages), save
@@ -1458,57 +1453,68 @@ modules.oppm = class extends modules.default
   @resolveDependencies: (packages, resolved={}, unresolved={}) =>
     cacheList = @listCache!
     for name in *packages
-      unresolved[name] = true
-      manifest = loadManifest name, nil, "oppm"
-      if not manifest
-        local data
-        for package in *cacheList
-          { :pkg } = package
-          if pkg == name
-            data = package
-            break
-        return false, "Unknown package: #{name}" unless data
-        if data.data.data.dependencies
-          for dep in pairs data.data.data.dependencies
-            isResolved = false
-            for pkg in *resolved
-              if pkg == dep
-                isResolved = true
-                break
-            unless isResolved
-              if unresolved[dep]
-                log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep}', and '#{dep}' depends on '#{name}'."
-              @resolveDependencies {dep}, resolved, unresolved
+      isResolved = false
+      for pkg in *resolved
+        if pkg == name
+          isResolved = true
+          break
+      unless isResolved
+        unresolved[name] = true
+        manifest = loadManifest name, nil, "oppm"
+        if not manifest
+          local data
+          for package in *cacheList
+            { :pkg } = package
+            if pkg == name
+              data = package
+              break
+          return false, "Unknown package: #{name}" unless data
+          if data.data.data.dependencies
+            for dep in pairs data.data.data.dependencies
+              isResolved = false
+              for pkg in *resolved
+                if pkg == dep
+                  isResolved = true
+                  break
+              unless isResolved
+                if unresolved[dep]
+                  log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep}', and '#{dep}' depends on '#{name}'."
+                @resolveDependencies {dep}, resolved, unresolved
         insert resolved, name
-      else
-        insert resolved, name
-      unresolved[name] = nil
+        unresolved[name] = nil
     resolved
 
-  @getPackageDependants: (name, resolved={}, unresolved={}) =>
-    insert unresolved, { :name }
-    manifest = loadManifest name, nil, "oppm"
-    if manifest
-      insert resolved, { :name, :manifest }
-      list = try listFiles concat distPath, "oppm"
-      for file in list
-        manifest = try loadManifest file, nil, "oppm"
-        for dep in *manifest.dependencies
-          if dep.name == name
-            isResolved = false
-            for pkg in *resolved
-              if pkg.name == file
-                isResolved = true
-                break
-            if not isResolved
-              for pkg in *unresolved
-                if pkg.name == file
-                  log.fatal "Circular dependencies detected: #{file}"
-              @getPackageDependants file, resolved, unresolved
-    else
-      log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
+  @getPackageDependants: (packages, resolved={}, unresolved={}) =>
+    for name in *packages
+      isResolved = false
+      for pkg in *resolved
+        if pkg.name == name
+          isResolved = true
+          break
+      unless isResolved
+        insert unresolved, { :name }
+        manifest = loadManifest name, nil, "oppm"
+        if manifest
+          insert resolved, { :name, :manifest }
+          list = try listFiles concat distPath, "oppm"
+          for file in list
+            manifest = try loadManifest file, nil, "oppm"
+            for dep in *manifest.dependencies
+              if dep.name == name
+                isResolved = false
+                for pkg in *resolved
+                  if pkg.name == file
+                    isResolved = true
+                    break
+                if not isResolved
+                  for pkg in *unresolved
+                    if pkg.name == file
+                      log.fatal "Circular dependencies detected: #{file}"
+                  @getPackageDependants {file}, resolved, unresolved
+        else
+          log.fatal "Package #{name} is referenced as a dependant of another package, however, this package isn't installed."
 
-    unresolved[#unresolved] = nil
+        unresolved[#unresolved] = nil
     resolved
 
   @whatDependsOn: (name) =>
@@ -1537,9 +1543,9 @@ modules.oppm = class extends modules.default
       packagesInstalled: 0
     }
     if reinstall
-      for name in *packages
-        manifest = try loadManifest name, nil, "oppm"
-        @remove manifest, false, true
+      manifests = for name in *packages
+        try loadManifest name, nil, "oppm"
+      @_remove manifests, true
     for node in *dependencyGraph
       log.print "Installing '#{node}'..."
       prefix = if save then "./#{node}/" else "/"
@@ -1556,22 +1562,26 @@ modules.oppm = class extends modules.default
     log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
 
-  @remove: (manifest, recursiveCall=false, noPlan=false) =>
-    if recursiveCall
-      return super manifest, "oppm"
+  @remove: public (...) =>
+    packages = {...}
+    manifests = {}
+    for pkg in *packages
+      manifest = try loadManifest pkg, nil, "oppm"
+      insert manifests, manifest
+    @_remove manifests, false
+
+  @_remove: (manifests, noPlan=false) =>
     deps = if not config.get("oppm", {}, true).get("remove_dependants", true)
-      {
-        { name: manifest.name, :manifest }
-      }
+      [{ name: manifest.name, :manifest } for manifest in *manifests]
     else
-      @getPackageDependants manifest.name
+      @getPackageDependants [manifest.name for manifest in *manifests]
     unless noPlan
       pkgPlan {
-        remove: ["oppm:#{node.name}" for node in *deps]
+        remove: ["#{node.name}" for node in *deps]
       }
     for dep in *deps
       log.print "Removing '#{dep.manifest.name}' ..."
-      try @remove dep.manifest, true
+      try super\remove dep.manifest, "oppm"
     true
 
   @cache: public (command, ...) =>
@@ -1628,7 +1638,7 @@ modules.oppm = class extends modules.default
       remove: if #toRemove > 0 then ["oppm:#{name}" for name in *toRemove] else nil
     }
     for name in *sorted
-      @remove try(loadManifest(name, nil, "oppm")), false, false
+      @_remove {try loadManifest name, nil, "oppm"}, false
 
     log.print "Done."
     true
