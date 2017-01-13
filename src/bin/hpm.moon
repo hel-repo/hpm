@@ -1182,7 +1182,7 @@ modules.hel = class extends modules.default
     if reinstall
       manifests = for pkg in *packages
         try loadManifest pkg.name, nil, "hel"
-      @_remove manifests, true
+      @_remove manifests, true, false
     for node in *dependencyGraph
       log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
       manifest = @rawInstall node.pkg, isin(node.pkg.name, packages), save
@@ -1201,8 +1201,8 @@ modules.hel = class extends modules.default
     @_remove manifests, false
 
   -- Remove packages and its dependants
-  @_remove: (manifests, noPlan=false) =>
-    deps = if not config.get("hel", {}, true).get("remove_dependants", true)
+  @_remove: (manifests, noPlan=false, removeDeps=true) =>
+    deps = if not config.get("hel", {}, true).get("remove_dependants", true) or not removeDeps
       [{ name: manifest.name, :manifest } for manifest in *manifests]
     else
       @getPackageDependants [manifest.name for manifest in *manifests]
@@ -1545,7 +1545,7 @@ modules.oppm = class extends modules.default
     if reinstall
       manifests = for name in *packages
         try loadManifest name, nil, "oppm"
-      @_remove manifests, true
+      @_remove manifests, true, false
     for node in *dependencyGraph
       log.print "Installing '#{node}'..."
       prefix = if save then "./#{node}/" else "/"
@@ -1570,8 +1570,8 @@ modules.oppm = class extends modules.default
       insert manifests, manifest
     @_remove manifests, false
 
-  @_remove: (manifests, noPlan=false) =>
-    deps = if not config.get("oppm", {}, true).get("remove_dependants", true)
+  @_remove: (manifests, noPlan=false, removeDeps=true) =>
+    deps = if not config.get("oppm", {}, true).get("remove_dependants", true) or not removeDeps
       [{ name: manifest.name, :manifest } for manifest in *manifests]
     else
       @getPackageDependants [manifest.name for manifest in *manifests]
