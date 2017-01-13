@@ -1303,6 +1303,19 @@ modules.hel = class extends modules.default
 
     log.print table.concat message, "\n"
 
+  @search: public (...) =>
+    return unless ...
+    status, response = download @URL .. "packages?q=" .. table.concat(['"' .. x\gsub("['\"]", "") .. '"' for x in *{...}], " ")\gsub "&", ""
+    log.fatal "HTTP request error: " .. response unless status
+    jsonData = ""
+    for chunk in response do jsonData ..= chunk
+    decoded = json\decode jsonData
+    log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
+    list = decoded.data.list
+    for pkg in *list
+      log.print "#{pkg.name}: #{pkg.short_description}"
+    log.print "No packages found." if #list == 0
+
 
 modules.oppm = class extends modules.default
 
