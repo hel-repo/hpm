@@ -1149,7 +1149,7 @@ modules.hel = class extends modules.default
 
     packages = {}
     for x in *{...}
-      name, version = x\match "(.+)@?(.-)"
+      name, version = x\match "^(.+)@(.+)$" or x
       version = "*" if empty version
       log.info "Creating version specification for #{version} ..."
       success, spec = pcall -> semver.Spec version
@@ -1215,6 +1215,41 @@ modules.hel = class extends modules.default
       log.print "Removing '#{dep.manifest.name}@#{dep.manifest.version}' ..."
       try super\remove dep.manifest, "hel"
     true
+
+  @upgrade: public () =>
+    -- STEP 1. Get packages that can be up'd.
+    --         To do so we need to send a http request for each package installed.
+    installed = for file in try listFiles concat distPath, "hel"
+      unless isDirectory concat distPath, "hel", file
+        try loadManifest file, nil, "hel"
+
+    upgradable = for pkg in *installed
+      spec = @getPackageSpec pkg.name
+      data = @parsePackageJSON spec
+      pkg.latest = { :spec, :data }
+      if semver.Version(pkg.latest.data.version) > semver.Version(pkg.version)
+        pkg
+
+    -- STEP 2. Now let's try to run the dep resolver.
+    @resolveDependencies [{ name: pkg.name, version: semver.Spec pkg.latest.data.version } for pkg in *upgradable]
+
+    -- STEP 3. As we're here, the dep resolver didn't cause a fatal error,
+    --         so we can continue.
+    --         Show the plan and install the packages.
+    toUpgrade = ["#{pkg.name}@{#{pkg.version} => #{pkg.latest.data.version}}" for pkg in *upgradable]
+    pkgPlan {
+      upgrade: toUpgrade
+    }
+
+    for pkg in *upgradable
+      @_remove {pkg}, true, false
+      log.print "Installing '#{pkg.name}@#{pkg.latest.data.version}'..."
+      manifest = @rawInstall pkg.latest.data, pkg.manual, false
+      success, reason = saveManifest manifest, "hel"
+      if success
+        log.info "Saved the manifest of '#{manifest.name}'."
+      else
+        log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
 
   @info: public (pkg, specString="*") =>
     log.fatal "Usage: hpm hel:info <package name> [<version specification>]" if empty pkg
