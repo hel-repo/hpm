@@ -11,18 +11,8 @@ DESCRIPTION
   Available commands:
   install <package> [...]   Download package[s] and their dependencies from the Hel Repository, and install it to the system.
   remove <package> [...]    Remove package[s] and their dependants from the system.
-  save <package> [...]      Download package[s] without installation.
   list                      Show list of installed packages.
   help                      Show help message.
-
-  Available package formats:
-  [hel:]<name>[@<version>]  Package from the Hel Package Repository (default option).
-                            <version> is the version specification. Multiple items are delimited by the comma. Ex.: 0.5.0; ^1,!=1.3,<1.6.
-                            If the specification is omitted, the latest package version will be installed.
-  local:<path>              Get package from local file system.
-  oppm:<package name>       Install from the OpenPrograms repository.
-  pastebin:<id>             Download source code from given Pastebin page.
-  direct:<url>              Fetch file from <url>.
 
 OPTIONS
   -q
@@ -35,8 +25,8 @@ OPTIONS
     Don't ask to press the Enter key for confirmation.
 
 METHOD-SPECIFIC OPTIONS
-  install
-    -r
+  install, oppm:install
+    -r, --reinstall
       Reinstall the package: remove it first, and then install.
       If you specify the version of package to install (like, `hpm install package@1.1.0`), the package can be upgraded and downgraded.
       Be careful, though! Dependencies are not resolved. The depsolver will be added in future updated.
@@ -44,9 +34,18 @@ METHOD-SPECIFIC OPTIONS
     -l, --local
       Install the package using the `manifest` file in the directory given instead of package name.
 
+    -s, --save
+      Place the package in a directory in the local directory instead of installing is globally.
+
 MODULE-SPECIFIC METHODS
   hel:info <package name> [<version specification>]
     Print information about the package.
+
+  oppm:install <package> [...]
+    Install an OpenPrograms program.
+
+  oppm:remove <package> [...]
+    Remove an OpenPrograms program.
 
   oppm:autoremove
     Find packages that were installed as dependencies, and aren't needed now.
