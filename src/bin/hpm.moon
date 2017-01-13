@@ -1032,7 +1032,7 @@ modules.hel = class extends modules.default
     { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies, manual: isManuallyInstalled }
 
   -- Get an ordered list of packages for installation, resolving dependencies.
-  @resolveDependencies: (packages, resolved={}, unresolved={}) =>
+  @resolveDependencies: (packages, resolved={}, unresolved={}, result={}) =>
     for { :name, :version } in *packages
       isResolved = false
       for pkg in *resolved
@@ -1063,12 +1063,13 @@ modules.hel = class extends modules.default
                   log.fatal "Circular dependencies detected: '#{name}@#{data.version}' depends on '#{dep.name}@#{dep.version}', and '#{unresolved[key].name}@#{unresolved[key].version}' depends on '#{name}@#{data.version}'."
                 else
                   log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
-              @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, resolved, unresolved
+              @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, resolved, unresolved, result
           insert resolved, { pkg: data }
+          insert result, { pkg: data }
         else
           insert resolved, { pkg: manifest }
         unresolved[#unresolved] = nil
-    resolved
+    result
 
   -- Get all packages that depend on the given, and return a list of the dependent packages.
   @getPackageDependants: (packages, resolved={}, unresolved={}) =>
@@ -1450,7 +1451,7 @@ modules.oppm = class extends modules.default
       manual: isManuallyInstalled
     }, stats
 
-  @resolveDependencies: (packages, resolved={}, unresolved={}) =>
+  @resolveDependencies: (packages, resolved={}, unresolved={}, result={}) =>
     cacheList = @listCache!
     for name in *packages
       isResolved = false
@@ -1479,10 +1480,11 @@ modules.oppm = class extends modules.default
               unless isResolved
                 if unresolved[dep]
                   log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep}', and '#{dep}' depends on '#{name}'."
-                @resolveDependencies {dep}, resolved, unresolved
+                @resolveDependencies {dep}, resolved, unresolved, result
+          insert result, name
         insert resolved, name
         unresolved[name] = nil
-    resolved
+    result
 
   @getPackageDependants: (packages, resolved={}, unresolved={}) =>
     for name in *packages
