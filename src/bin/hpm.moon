@@ -1238,20 +1238,38 @@ modules.hel = class extends modules.default
         insert upgradable, pkg
 
     -- STEP 2. Now let's try to run the dep resolver.
-    @resolveDependencies [{ name: pkg.name, version: semver.Spec pkg.latest.data.version } for pkg in *upgradable]
+    deps = @resolveDependencies [{ name: pkg.name, version: semver.Spec pkg.latest.data.version } for pkg in *upgradable]
 
     -- STEP 3. As we're here, the dep resolver didn't cause a fatal error,
     --         so we can continue.
     --         Show the plan and install the packages.
     toUpgrade = ["#{pkg.name}@{#{pkg.version} => #{pkg.latest.data.version}}" for pkg in *upgradable]
+    toInstall = {}
+    for node in *deps
+      isNew = true
+      for pkg in *upgradable
+        if pkg.name == node.pkg.name
+          isNew = false
+          break
+      if isNew
+        insert toInstall, "#{node.pkg.name}@#{node.pkg.version}"
     pkgPlan {
-      upgrade: toUpgrade
+      upgrade: toUpgrade,
+      install: toInstall
     }
 
-    for pkg in *upgradable
-      @_remove {pkg}, true, false
-      log.print "Installing '#{pkg.name}@#{pkg.latest.data.version}'..."
-      manifest = @rawInstall pkg.latest.data, pkg.manual, false
+    for node in *deps
+      shouldRemove = false
+      manual = false
+      for pkg in *upgradable
+        if pkg.name == node.pkg.name
+          shouldRemove = pkg
+          manual = pkg.manual
+          break
+      if shouldRemove
+        @_remove {shouldRemove}, true, false
+      log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
+      manifest = @rawInstall node.pkg, manual, false
       success, reason = saveManifest manifest, "hel"
       if success
         log.info "Saved the manifest of '#{manifest.name}'."
