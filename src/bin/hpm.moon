@@ -1219,16 +1219,18 @@ modules.hel = class extends modules.default
   @upgrade: public () =>
     -- STEP 1. Get packages that can be up'd.
     --         To do so we need to send a http request for each package installed.
-    installed = for file in try listFiles concat distPath, "hel"
+    installed = {}
+    for file in try listFiles concat distPath, "hel"
       unless isDirectory concat distPath, "hel", file
-        try loadManifest file, nil, "hel"
+        insert installed, try loadManifest file, nil, "hel"
 
-    upgradable = for pkg in *installed
+    upgradable = {}
+    for pkg in *installed
       spec = @getPackageSpec pkg.name
       data = @parsePackageJSON spec
       pkg.latest = { :spec, :data }
       if semver.Version(pkg.latest.data.version) > semver.Version(pkg.version)
-        pkg
+        insert upgradable, pkg
 
     -- STEP 2. Now let's try to run the dep resolver.
     @resolveDependencies [{ name: pkg.name, version: semver.Spec pkg.latest.data.version } for pkg in *upgradable]
