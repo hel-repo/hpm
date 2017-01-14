@@ -518,7 +518,7 @@ import isDirectory, exists, makeDirectory, concat, copy from require "filesystem
 fs = require "filesystem"
 import serialize, unserialize from require "serialization"
 import pull from require "event"
-import clearLine, getCursor from require "term"
+import clearLine, getCursor, clear from require "term"
 
 import exit from os
 import write, stderr from io
@@ -1304,17 +1304,29 @@ modules.hel = class extends modules.default
     log.print table.concat message, "\n"
 
   @search: public (...) =>
-    return unless ...
-    status, response = download @URL .. "packages?q=" .. table.concat(['"' .. x\gsub("['\"]", "") .. '"' for x in *{...}], " ")\gsub "&", ""
-    log.fatal "HTTP request error: " .. response unless status
-    jsonData = ""
-    for chunk in response do jsonData ..= chunk
-    decoded = json\decode jsonData
-    log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
-    list = decoded.data.list
-    for pkg in *list
-      log.print "#{pkg.name}: #{pkg.short_description}"
-    log.print "No packages found." if #list == 0
+    offset = 0
+    while true
+      list = {}
+      url = @URL .. "packages"
+      if ...
+        url ..= "?q=" .. table.concat(['"' .. x\gsub("\"", "") .. '"' for x in *{...}], " ")\gsub "&", ""
+      url ..= "?offset=#{offset}"
+      status, response = download url
+      log.fatal "HTTP request error: " .. response unless status
+      jsonData = ""
+      for chunk in response do jsonData ..= chunk
+      decoded = json\decode jsonData
+      log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
+      list = decoded.data.list
+      for pkg in *list
+        log.print "#{pkg.name}: #{pkg.short_description}"
+      if #list == 0 and offset == 0
+        log.print "No packages found."
+        break
+      if decoded.data.truncated and decoded.data.sent + decoded.data.offset < decoded.data.total
+        offset = decoded.data.offset + decoded.data.sent
+      else
+        break
 
 
 modules.oppm = class extends modules.default
@@ -1717,6 +1729,35 @@ modules.oppm = class extends modules.default
 
     log.print "Done."
     true
+
+  @search: public (...) =>
+    list = @listCache!
+    found = {}
+    if ...
+      for { :data } in *list
+        pkg = data.data
+        left = {...}
+        for i = #left, 1, -1 do
+          phrase = left[i]
+          if data.name\find phrase
+            table.remove left, i
+            break
+          if pkg.name and pkg.name\find phrase
+            table.remove left, i
+            break
+          if pkg.description and pkg.description\find phrase
+            table.remove left, i
+            break
+          if pkg.note and pkg.note\find phrase
+            table.remove left, i
+            break
+        if #left == 0
+          insert found, data
+    else
+      found = [x.data for x in *list]
+
+    for pkg in *found
+      log.print "#{pkg.name} - #{pkg.data.name or pkg.name}: #{pkg.data.description}"
 
 
 -- Commands implementation -----------------------------------------------------
