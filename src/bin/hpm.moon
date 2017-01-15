@@ -1109,7 +1109,7 @@ modules.hel = class extends modules.default
     if options.l or options.local then
       path = shell.resolve ...
       manifest = try loadManifest path, concat path, "manifest"
-      dependencyGraph = @resolveDependencies manifest.depends, nil
+      dependencyGraph = @resolveDependencies [{ :name, version: semver.Spec version } for { :name, :version } in *manifest.dependencies]
 
       onlyDeps = options.d or options.onlyDeps
 
@@ -1124,12 +1124,12 @@ modules.hel = class extends modules.default
       for i = 1, #dependencyGraph, 1
         node = dependencyGraph[i]
         log.print "Installing '#{node.pkg.name}@#{node.pkg.version}'..."
-        manifest = @rawInstall node.pkg, false, false
-        success, reason = saveManifest manifest, "hel"
+        _manifest = @rawInstall node.pkg, false, false
+        success, reason = saveManifest _manifest, "hel"
         if success
-          log.info "Saved the manifest of '#{manifest.name}'."
+          log.info "Saved the manifest of '#{_manifest.name}'."
         else
-          log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
+          log.fatal "Couldn't save the manifest of '#{_manifest.name}': #{reason}."
 
       if not onlyDeps
         log.print "Installing '#{manifest.name}@#{manifest.version}'..."
@@ -1146,6 +1146,7 @@ modules.hel = class extends modules.default
           log.info "Saved the manifest of '#{manifest.name}'."
         else
           log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
+      return true
 
     packages = {}
     for x in *{...}
@@ -1231,11 +1232,14 @@ modules.hel = class extends modules.default
 
     upgradable = {}
     for pkg in *installed
-      spec = @getPackageSpec pkg.name
-      data = @parsePackageJSON spec
-      pkg.latest = { :spec, :data }
-      if semver.Version(pkg.latest.data.version) > semver.Version(pkg.version)
-        insert upgradable, pkg
+      success, spec = pcall @getPackageSpec, pkg.name
+      -- we can also have local hel packages installed
+      -- that would cause an error here
+      if success
+        data = @parsePackageJSON spec
+        pkg.latest = { :spec, :data }
+        if semver.Version(pkg.latest.data.version) > semver.Version(pkg.version)
+          insert upgradable, pkg
 
     -- STEP 2. Now let's try to run the dep resolver.
     deps = @resolveDependencies [{ name: pkg.name, version: semver.Spec pkg.latest.data.version } for pkg in *upgradable]
