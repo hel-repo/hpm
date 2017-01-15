@@ -1759,6 +1759,26 @@ modules.oppm = class extends modules.default
     for pkg in *found
       log.print "#{pkg.name} - #{pkg.data.name or pkg.name}: #{pkg.data.description}"
 
+  @info: public (name) =>
+    log.fatal "Usage: hpm oppm:info <package name>" if empty name
+    list = @listCache!
+    package = nil
+    for pkg in *list
+      if pkg.pkg == name
+        package = pkg
+        break
+
+    log.fatal "No such package." unless package
+
+    log.print "- Package name: #{package.pkg}"
+    log.print "                #{package.data.data.name}" if package.data.data.name
+    log.print "- Description:\n#{package.data.data.description}" if package.data.data.description
+    log.print "- Authors:\n#{package.data.data.authors}" if package.data.data.authors
+    log.print "- Files:        #{tableLen package.data.data.files}" if package.data.data.files
+    log.print "- Depends:      #{table.concat [x for x in pairs package.data.data.dependencies]}" if package.data.data.dependencies
+    log.print "- Note:\n#{package.data.data.note}" if package.data.data.note
+    log.print "- Repository:   https://github.com/#{package.repo}"
+
 
 -- Commands implementation -----------------------------------------------------
 
