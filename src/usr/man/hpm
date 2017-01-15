@@ -39,10 +39,10 @@ METHOD-SPECIFIC OPTIONS
 
 MODULE-SPECIFIC METHODS
   hel:info <package name> [<version specification>]
-    Print information about the package.
+    Print information about a package.
 
   hel:upgrade
-    Try to install the latest version of the installed packages.
+    Try to install the latest versions of the installed packages.
 
   hel:search [keywords...]
     List all packages when no keywords given, or search for packages.
@@ -65,6 +65,9 @@ MODULE-SPECIFIC METHODS
 
   oppm:search [keywords...]
     List all packages when no keywords given, or search for packages.
+
+  oppm:info <package name>
+    Print information about a package.
 
 MANIFEST
   For easier package management you can create the file called `manifest` (usually you want to create it in the root directory of project). The following is the manifest template.
