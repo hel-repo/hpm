@@ -41,6 +41,12 @@ MODULE-SPECIFIC METHODS
   hel:info <package name> [<version specification>]
     Print information about the package.
 
+  hel:upgrade
+    Try to install the latest version of the installed packages.
+
+  hel:search [keywords...]
+    List all packages when no keywords given, or search for packages.
+
   oppm:install <package> [...]
     Install an OpenPrograms program.
 
@@ -56,6 +62,9 @@ MODULE-SPECIFIC METHODS
 
   oppm:cache fix
     Find and remove redundant filesystem nodes in the cache directory.
+
+  oppm:search [keywords...]
+    List all packages when no keywords given, or search for packages.
 
 MANIFEST
   For easier package management you can create the file called `manifest` (usually you want to create it in the root directory of project). The following is the manifest template.
