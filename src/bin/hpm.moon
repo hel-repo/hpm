@@ -1232,9 +1232,9 @@ modules.hel = class extends modules.default
 
     upgradable = {}
     for pkg in *installed
-      success, spec = pcall @getPackageSpec, pkg.name
+      success, spec = pcall @getPackageSpec, @, pkg.name
       -- we can also have local hel packages installed
-      -- that would cause an error here
+      -- that would have caused an error here
       if success
         data = @parsePackageJSON spec
         pkg.latest = { :spec, :data }
