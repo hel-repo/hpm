@@ -1150,7 +1150,7 @@ modules.hel = class extends modules.default
 
     packages = {}
     for x in *{...}
-      name, version = x\match "^(.+)@(.+)$" or x
+      name, version = x\match("^(.+)@(.+)$") or x
       version = "*" if empty version
       log.info "Creating version specification for #{version} ..."
       success, spec = pcall -> semver.Spec version
