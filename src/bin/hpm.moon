@@ -733,7 +733,8 @@ loadCustomModules = ->
   list = try listFiles modulePath
   for file in list
     env.name = file\match("^(.+)%..+$")
-    (try loadfile concat(modulePath, file), "t", env)!
+    mod = try loadfile concat(modulePath, file), "t", env
+    mod!
     env.name = nil
   true
 
