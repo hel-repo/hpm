@@ -533,6 +533,7 @@ options, args = {}, {}  -- command-line arguments
 request = nil           -- internet request method (call checkInternet to instantiate)
 modules = {}            -- distribution modules
 config = {}             -- configuration table (initialized by loadConfig)
+env = {}                -- module environment
 modulePath = "/etc/hpm/module/" -- custom source modules
 distPath = "/var/lib/hpm/dist/"     -- manifests of installed packages
 exitCode = 0
@@ -732,7 +733,7 @@ loadCustomModules = ->
   list = try listFiles modulePath
   for file in list
     name = file\match("^(.+)%..+$")
-    mod = (loadfile concat(modulePath, file), "t", _ENV)!
+    mod = (loadfile concat(modulePath, file), "t", env)!
     modules[name] = mod if mod
   true
 
@@ -1818,6 +1819,59 @@ process = ->
     else
       if cmd = findCustomCommand args[1]
         cmd unpack [x for x in *args[2,]]
+
+-- Set the module env
+env.semver = semver
+env.json = json
+env.CONFIG_PATH = CONFIG_PATH
+env.USAGE = USAGE
+env.DEFAULT_CONFIG = DEFAULT_CONFIG
+env.options = options
+env.args = args
+env.request = request
+env.modules = modules
+env.config = config
+env.modulePath = modulePath
+env.distPath = distPath
+env.exitCode = exitCode
+env.log = log
+env.assert = assert
+env.unimplemented = unimplemented
+env.printUsage = printUsage
+env.try = try
+env.checkType = checkType
+env.argNumber = argNumber
+env.argString = argString
+env.isin = isin
+env.tableLen = tableLen
+env.empty = empty
+env.all = all
+env.existsDir = existsDir
+env.existsFile = existsFile
+env.plural = plural
+env.singular = singular
+env.linkingVerb = linkingVerb
+env.remove = remove
+env.loadConfig = loadConfig
+env.checkInternet = checkInternet
+env.download = download
+env.findCustomCommand = findCustomCommand
+env.getModuleBy = getModuleBy
+env.callModuleMethod = callModuleMethod
+env.saveManifest = saveManifest
+env.loadManifest = loadManifest
+env.removeManifest = removeManifest
+env.public = public
+env.wrapResponse = wrapResponse
+env.recv = recv
+env.confirm = confirm
+env.pkgPlan = pkgPlan
+env.printPackageList = printPackageList
+env.parseArguments = parseArguments
+env.process = process
+
+for k, v in pairs _G
+  env[k] = v
 
 -- Run!
 parseArguments ...
