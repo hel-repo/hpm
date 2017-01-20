@@ -733,7 +733,9 @@ loadCustomModules = ->
   list = try listFiles modulePath
   for file in list
     name = file\match("^(.+)%..+$")
-    mod = (try loadfile concat(modulePath, file), "t", env)!
+    env.name = name
+    (try loadfile concat(modulePath, file), "t", env)!
+    env.name = nil
   true
 
 findCustomCommand = (name) ->
