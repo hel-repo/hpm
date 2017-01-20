@@ -732,8 +732,7 @@ loadCustomModules = ->
       return false, "Failed to create '#{modulePath}' directory for custom modules: #{reason}"
   list = try listFiles modulePath
   for file in list
-    name = file\match("^(.+)%..+$")
-    env.name = name
+    env.name = file\match("^(.+)%..+$")
     (try loadfile concat(modulePath, file), "t", env)!
     env.name = nil
   true
