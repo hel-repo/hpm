@@ -733,8 +733,7 @@ loadCustomModules = ->
   list = try listFiles modulePath
   for file in list
     name = file\match("^(.+)%..+$")
-    mod = (loadfile concat(modulePath, file), "t", env)!
-    modules[name] = mod if mod
+    mod = (try loadfile concat(modulePath, file), "t", env)!
   true
 
 findCustomCommand = (name) ->
@@ -1821,7 +1820,14 @@ process = ->
         cmd unpack [x for x in *args[2,]]
 
 -- Set the module env
-env.semver = semver
+env.semver = {
+  Version: semver.Version
+  Spec: semver.Spec
+  SpecItem: semver.SpecItem
+  compare: semver.compare
+  match: semver.match
+  validate: semver.validate
+}
 env.json = json
 env.CONFIG_PATH = CONFIG_PATH
 env.USAGE = USAGE
