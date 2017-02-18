@@ -17,7 +17,7 @@ HPM is in very early development stage, so feel free to contribute.
  * Cool
 
 ## Usage
-[https://github.com/hel-repo/hpm/blob/master/src/usr/man/hpm](Manpage).
+[Manpage](https://github.com/hel-repo/hpm/blob/master/src/usr/man/hpm).
 
 ## Download
 Build the latest version using the `./build.sh` script. You'll need the `moonscript` package: `luarocks install moonscript`.
