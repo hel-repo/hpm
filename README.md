@@ -17,28 +17,7 @@ HPM is in very early development stage, so feel free to contribute.
  * Cool
 
 ## Usage
-```
-Usage: hpm [-vq] <command>
-  -q: Quiet mode: no console output.
-  -v: Verbose mode: show additional info.
-
- --c, --config:
-      Path to hpm config file.
-
-
-Available commands:
-  install <package> [...]   Download package[s] from Hel Repository, and install it into the system.
-  remove <package> [...]    Remove all package[s] files from the system.
-  save <package> [...]      Download package[s] without installation.
-  list                      Show list of installed packages.
-  help                      Show this message.
-
-Available package formats:
-  [hel:]<name>[@<version>]  Package from Hel Package Repository (default option).
-  local:<path>              Get package from local file system.
-  pastebin:<name>@<id>      Download source code from given Pastebin page.
-  direct:<name>@<url>       Fetch file from <url>.
-```
+[https://github.com/hel-repo/hpm/blob/master/src/usr/man/hpm](Manpage).
 
 ## Download
 Build the latest version using the `./build.sh` script. You'll need the `moonscript` package: `luarocks install moonscript`.
