@@ -564,8 +564,8 @@ hel.remove_dependants = true
 -- << Settings related to the oppm module >> -----------------------------------
 oppm = {}
 
--- A directory where package manifests will be stored for faster access.
-oppm.cache_directory = "/var/cache/hpm/oppm"
+-- A cache file where package manifests will be stored for faster access.
+oppm.cache_file = "/var/cache/hpm/oppm"
 
 -- See hel.remove_dependants above.
 oppm.remove_dependants = true]]
@@ -1341,60 +1341,30 @@ modules.oppm = class extends modules.default
   @PACKAGES: "https://raw.githubusercontent.com/%s/master/programs.cfg"
   @FILES: "https://raw.githubusercontent.com/%s/%s"
   @DIRECTORY: "https://api.github.com/repos/%s/contents/%s?ref=%s"
-  @DEFAULT_CACHE_DIRECTORY = "/var/cache/hpm/oppm"
+  @DEFAULT_CACHE_FILE = "/var/cache/hpm/oppm"
 
-  @cacheDirectory: =>
-    dir = config.get("oppm", {}, true).get("cache_directory", @DEFAULT_CACHE_DIRECTORY)
-    unless existsDir dir
-      result, reason = makeDirectory dir
-      log.fatal "Could not create the cache directory at #{dir}: #{reason}" unless result
-    dir
+  @cacheFile: =>
+    path = config.get("oppm", {}, true).get("cache_file", @DEFAULT_CACHE_FILE)
+    unless existsDir fs.path path
+      result, reason = makeDirectory fs.path path
+      log.fatal "Could not create the cache directory at #{fs.path path}: #{reason}" unless result
+    unless existsFile path
+      file, reason = io.open path, "w"
+      log.fatal "Could not open '#{path}' for writing: #{reason}" unless file
+      file\write "{}"
+      file\close!
+    path
 
   @listCache: =>
-    list = {}
-    cacheDir = @cacheDirectory!
-    dirs = try listFiles cacheDir
-    for dir in dirs
-      if isDirectory concat cacheDir, dir
-        subdirs = try listFiles concat cacheDir, dir
-        for subdir in subdirs
-          if isDirectory concat cacheDir, dir, subdir
-            pkgs = try listFiles concat cacheDir, dir, subdir
-            for pkg in pkgs
-              fullPath = concat cacheDir, dir, subdir, pkg
-              unless isDirectory fullPath
-                local data
-                with file, reason = io.open fullPath, "r"
-                  return false, "Could not open '#{fullPath}' for reading: #{reason}" if not file
-                  all = \read "*all"
-                  data = unserialize all
-                  \close!
-                repo = concat dir, subdir
-                insert list, { path: fullPath, :repo, :pkg, :data }
+    local list
+    cachePath = @cacheFile!
+    with file, reason = io.open cachePath, "r"
+      return false, "Could not open '#{cachePath}' for reading: #{reason}" unless file
+      all = \read "*all"
+      list, reason = unserialize all
+      return false, "Cache is malformed: #{reason}" unless list
+      \close!
     list
-
-  @fixCache: =>
-    cacheDir = @cacheDirectory!
-    dirs = try listFiles cacheDir
-    for dir in dirs
-      removeDir = true
-      pathDir = concat cacheDir, dir
-      if isDirectory pathDir
-        subdirs = try listFiles pathDir
-        for subdir in subdirs
-          removeSubdir = true
-          pathSubdir = concat pathDir, subdir
-          if isDirectory pathSubdir
-            pkgs = try listFiles pathSubdir
-            for pkg in pkgs
-              removePkg = true
-              pathPkg = concat pathSubdir, pkg
-              unless isDirectory pathPkg
-                removePkg, removeSubdir, removeDir = false, false, false
-              remove pathPkg if removePkg
-          remove pathSubdir if removeSubdir
-      remove pathDir if removeDir
-    true
 
   @resolveDirectory: (repo, branch, path) =>
     data = try recv @DIRECTORY\format repo, path, branch
@@ -1403,7 +1373,7 @@ modules.oppm = class extends modules.default
     [{ name: file.name, url: file.download_url, path: file.path } for file in *data when file.type == "file"]
 
   @updateCache: =>
-    cacheDir = @cacheDirectory!
+    cacheFile = @cacheFile!
     oldFiles = try @listCache!
     repos, reason = recv @REPOS
     return false, "Could not fetch #{@REPOS}: #{reason}" unless repos
@@ -1440,17 +1410,11 @@ modules.oppm = class extends modules.default
             continue
           insert programs, { repo: repoData.repo, name: prg, data: prgData }
     newFiles = {}
+    newCache = {}
     for { :name, :repo, :data } in *programs
       if isin concat(repo, name), newFiles
         log.error "There're multiple packages under the same name: #{name}!"
-      unless existsDir concat cacheDir, repo
-        result, reason = makeDirectory concat cacheDir, repo
-        return false, "Could not create directory '#{concat cacheDir, repo}': #{reason}" unless result
-      file, reason = io.open concat(cacheDir, repo, name), "w"
-      return false, "Could not open '#{concat cacheDir, repo, name}' for writing: #{reason}" unless file
-      with file
-        \write serialize { :name, :repo, :data }
-        \close!
+      insert newCache, { pkg: name, :repo, data: { :name, :repo, :data } }
       local k
       do
         for key, v in pairs oldFiles
@@ -1461,11 +1425,11 @@ modules.oppm = class extends modules.default
         table.remove oldFiles, k
       else
         insert newFiles, concat repo, name
-    log.print "Removing old cache files ..."
-    for { :path } in *oldFiles
-      remove path
-    log.print "Fixing bad cache nodes ..."
-    @fixCache!
+    file, reason = io.open cacheFile, "w"
+    return false, "Could not open '#{cacheFile}' for writing: #{reason}" unless file
+    with file
+      \write serialize newCache
+      \close!
     log.print "- #{#programs} program#{plural #programs} cached."
     log.print "- #{#newFiles} package#{plural #newFiles} #{linkingVerb #newFiles} new."
     log.print "- #{#oldFiles} package#{plural #oldFiles} no longer exist#{singular #oldFiles}."
@@ -1494,7 +1458,7 @@ modules.oppm = class extends modules.default
         return manifest, stats
     local manifest
     for package in *cacheList
-      { :path, :pkg, :repo, :data } = package
+      { :pkg, :repo, :data } = package
       if pkg == name
         manifest = package
         break
@@ -1683,13 +1647,9 @@ modules.oppm = class extends modules.default
         log.print "Updating OpenPrograms program cache ..."
         try @updateCache!
         log.print "Done."
-      when "fix"
-        log.print "Fixing OpenPrograms program cache ..."
-        try @fixCache!
-        log.print "Done."
       else
         log.error "Unknown command."
-        log.print "Usage: hpm oppm:cache {update|fix}"
+        log.print "Usage: hpm oppm:cache update"
 
   @autoremove: public =>
     toRemove = {}
@@ -1737,7 +1697,7 @@ modules.oppm = class extends modules.default
     true
 
   @search: public (...) =>
-    list = @listCache!
+    list = try @listCache!
     found = {}
     if ...
       for { :data } in *list
