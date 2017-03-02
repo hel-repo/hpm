@@ -943,9 +943,12 @@ modules.default = class
     if manifest
       if manifest.files
         for i, file in pairs(manifest.files)
-          path = concat file.dir, file.name
-          result, reason = remove path
-          return false, "Failed to remove '#{path}': #{reason}" unless result
+          if file.path
+            result, reason = remove file.path
+            return false, "Failed to remove '#{file.path}': #{reason}" unless result
+          else
+            result, reason = remove concat(file.dir, file.name)
+            return false, "Failed to remove '#{concat file.dir, file.name}': #{reason}" unless result
       removeManifest manifest.name, mod
     else
       false, "Package can't be removed: the manifest is empty."
@@ -978,9 +981,8 @@ modules.hel = class extends modules.default
     data = { name: decoded.name, version: selectedVersion, files: {}, dependencies: {} }
 
     for url, file in pairs versions[bestMatch].files
-      dir = file.dir
-      name = file.name
-      insert data.files, { :url, :dir, :name }
+      path = file.path
+      insert data.files, { :url, :path }
 
     for depName, depData in pairs versions[bestMatch].depends
       version = depData.version
@@ -1018,16 +1020,16 @@ modules.hel = class extends modules.default
           log.fatal "'#{pkgData.name}@#{pkgData.version}' was attempted to install, however, another version of the same package is already installed: '#{pkgData.name}@#{manifest.version}'"
 
     for key, file in pairs pkgData.files
-      log.info "Fetching '#{file.name}' ..."
+      log.info "Fetching '#{fs.name file.path}' ..."
       contents = try recv file.url
 
-      path = concat prefix, file.dir
+      path = concat prefix, fs.path file.path
       if not existsDir path
         result, response = makeDirectory path
-        log.fatal "Failed to create '#{path}' directory for '#{file.name}'! \n#{response}" unless result
+        log.fatal "Failed to create '#{path}' directory for '#{fs.name file.path}'! \n#{response}" unless result
 
-      with file, reason = io.open concat(path, file.name), "w"
-        log.fatal "Could not open '#{concat path, file.name}' for writing: #{reason}" unless file
+      with file, reason = io.open concat(path, fs.name file.path), "w"
+        log.fatal "Could not open '#{concat path, fs.name file.path}' for writing: #{reason}" unless file
         \write contents
         \close!
 
