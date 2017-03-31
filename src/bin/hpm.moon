@@ -945,15 +945,13 @@ modules.default = class
         for i, file in pairs(manifest.files)
           if file.path
             result, reason = remove file.path
-            return false, "Failed to remove '#{file.path}': #{reason}" unless result
+            log\error "Failed to remove '#{file.path}': #{reason}" unless result
           else
             result, reason = remove concat(file.dir, file.name)
-            return false, "Failed to remove '#{concat file.dir, file.name}': #{reason}" unless result
+            log\error "Failed to remove '#{concat file.dir, file.name}': #{reason}" unless result
       removeManifest manifest.name, mod
     else
       false, "Package can't be removed: the manifest is empty."
-
-  @save: -> log.fatal "Incorrect source is provided! No default 'save' implementation."
 
 
 -- Hel Repository module
@@ -1036,7 +1034,7 @@ modules.hel = class extends modules.default
     { name: pkgData.name, version: tostring(pkgData.version), files: pkgData.files, dependencies: pkgData.dependencies, manual: isManuallyInstalled }
 
   -- Get an ordered list of packages for installation, resolving dependencies.
-  @resolveDependencies: (packages, resolved={}, unresolved={}, result={}) =>
+  @resolveDependencies: (packages, isReinstalling, resolved={}, unresolved={}, result={}) =>
     for { :name, :version } in *packages
       isResolved = false
       for pkg in *resolved
@@ -1067,11 +1065,12 @@ modules.hel = class extends modules.default
                   log.fatal "Circular dependencies detected: '#{name}@#{data.version}' depends on '#{dep.name}@#{dep.version}', and '#{unresolved[key].name}@#{unresolved[key].version}' depends on '#{name}@#{data.version}'."
                 else
                   log.fatal "Attempted to install two versions of the same package: '#{dep.name}@#{dep.version}' and '#{unresolved[key].name}@#{unresolved[key].version}' when resolving dependencies for '#{name}@#{data.version}'."
-              @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, resolved, unresolved, result
+              @resolveDependencies {{ name: dep.name, version: semver.Spec dep.version }}, false, resolved, unresolved, result
           insert resolved, { pkg: data }
           insert result, { pkg: data }
         else
           insert resolved, { pkg: manifest }
+          insert result, { pkg: manifest } if isReinstalling
         unresolved[#unresolved] = nil
     result
 
@@ -1164,7 +1163,7 @@ modules.hel = class extends modules.default
 
     reinstall = options.r or options.reinstall
     save = options.s or options.save
-    dependencyGraph = @resolveDependencies packages
+    dependencyGraph = @resolveDependencies packages, reinstall
 
     toReinstall = {}
     toInstall = {}
@@ -1316,9 +1315,9 @@ modules.hel = class extends modules.default
     while true
       list = {}
       url = @URL .. "packages"
-      if ...
-        url ..= "?q=" .. table.concat(['"' .. x\gsub("\"", "") .. '"' for x in *{...}], " ")\gsub "&", ""
       url ..= "?offset=#{offset}"
+      if ...
+        url ..= "&q=" .. table.concat(['"' .. x\gsub("\"", "") .. '"' for x in *{...}], " ")\gsub "&", ""
       status, response = download url
       log.fatal "HTTP request error: " .. response unless status
       jsonData = ""
@@ -1376,7 +1375,10 @@ modules.oppm = class extends modules.default
 
   @updateCache: =>
     cacheFile = @cacheFile!
-    oldFiles = try @listCache!
+    oldFiles, reason = @listCache!
+    unless oldFiles
+      log.error "Old cache is malformed: #{oldFiles}"
+      oldFiles = {}
     repos, reason = recv @REPOS
     return false, "Could not fetch #{@REPOS}: #{reason}" unless repos
     repos = unserialize repos
@@ -1444,7 +1446,7 @@ modules.oppm = class extends modules.default
       concat prefix, "usr", lPath
 
   @rawInstall: (name, prefix="/", isManuallyInstalled=false, save=false) =>
-    cacheList = @listCache!
+    cacheList = try @listCache!
     stats = {
       filesInstalled: 0,
       packagesInstalled: 0
@@ -1508,8 +1510,8 @@ modules.oppm = class extends modules.default
       manual: isManuallyInstalled
     }, stats
 
-  @resolveDependencies: (packages, resolved={}, unresolved={}, result={}) =>
-    cacheList = @listCache!
+  @resolveDependencies: (packages, isReinstalling, resolved={}, unresolved={}, result={}) =>
+    cacheList = try @listCache!
     for name in *packages
       isResolved = false
       for pkg in *resolved
@@ -1537,8 +1539,11 @@ modules.oppm = class extends modules.default
               unless isResolved
                 if unresolved[dep]
                   log.fatal "Circular dependencies detected: '#{name}' depends on '#{dep}', and '#{dep}' depends on '#{name}'."
-                @resolveDependencies {dep}, resolved, unresolved, result
+                @resolveDependencies {dep}, false, resolved, unresolved, result
           insert result, name
+        else
+          if isReinstalling
+            insert result, name
         insert resolved, name
         unresolved[name] = nil
     result
@@ -1591,7 +1596,7 @@ modules.oppm = class extends modules.default
     packages = {...}
     reinstall = options.r or options.reinstall
     save = options.s or options.save
-    dependencyGraph = try @resolveDependencies packages
+    dependencyGraph = try @resolveDependencies packages, reinstall
     pkgPlan {
       install: [node for node in *dependencyGraph when not reinstall or not isin node, packages]
       -- we could also do `reinstall and packages or nil`, but that would not keep the resolution order.
@@ -1729,7 +1734,7 @@ modules.oppm = class extends modules.default
 
   @info: public (name) =>
     log.fatal "Usage: hpm oppm:info <package name>" if empty name
-    list = @listCache!
+    list = try @listCache!
     package = nil
     for pkg in *list
       if pkg.pkg == name
