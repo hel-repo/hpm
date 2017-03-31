@@ -5,8 +5,8 @@ SYNOPSIS
   hpm COMMAND
 
 DESCRIPTION
-  Command-line package manager for OpenOS (OpenComputers). Allows to easily download and install programs from the Hel Repository. Alternative app sources are (planned to be) supported: Pastebin, Gist, GitHub, direct links.
-  Also you can define your own way of package distribution, via custom hpm modules.
+  Command-line package manager for OpenOS (OpenComputers). Allows to easily download and install programs from the Hel Repository and OpenPrograms repositories.
+  You can define your own way of package distribution using custom hpm modules.
 
   Available commands:
   install <package> [...]   Download package[s] and their dependencies from the Hel Repository, and install it to the system.
@@ -35,7 +35,7 @@ METHOD-SPECIFIC OPTIONS
       Install the package using the `manifest` file in the directory given instead of package name.
 
     -s, --save
-      Place the package in a directory in the local directory instead of installing is globally.
+      Place the package in a directory in PWD instead of installing it globally.
 
 MODULE-SPECIFIC METHODS
   hel:info <package name> [<version specification>]
@@ -93,7 +93,7 @@ MANIFEST
     The dependencies of package.
     - `name` is dependency name.
     - `version` is dependency version requirement string.
-    - `type` is currently unused but keeped for future updates. Should be `required`.
+    - `type` is currently unused but kept for future updates. Should be `required`.
 
   files
     The list of files of the package.
