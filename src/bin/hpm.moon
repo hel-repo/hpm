@@ -957,7 +957,7 @@ modules.default = class
 -- Hel Repository module
 modules.hel = class extends modules.default
   -- Repository API root url
-  @URL: "https://hel-roottree.rhcloud.com/"
+  @URL: "https://api.fomalhaut.me/"
 
   -- Get package data from JSON, and return as a table
   @parsePackageJSON: (decoded, spec=semver.Spec "*") =>
