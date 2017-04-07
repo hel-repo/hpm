@@ -1301,7 +1301,7 @@ modules.hel = class extends modules.default
     insert message, "- License:        #{spec.license}"
     insert message, "- Versions:       #{tableLen spec.versions}, latest: #{data.version}"
     insert message, "  - Files:        #{#data.files}"
-    insert message, "  - Depends:      #{table.concat ["#{x.name}@#{x.version}" for x in *data.dependencies]}"
+    insert message, "  - Depends:      #{table.concat ["#{x.name}@#{x.version}" for x in *data.dependencies], "  "}"
     insert message, "  - Changes:\n#{spec.versions[data.version].changes}"
     insert message, "- Stats:"
     insert message, "  - Views:        #{spec.stats.views}"
@@ -1748,7 +1748,7 @@ modules.oppm = class extends modules.default
     log.print "- Description:\n#{package.data.data.description}" if package.data.data.description
     log.print "- Authors:\n#{package.data.data.authors}" if package.data.data.authors
     log.print "- Files:        #{tableLen package.data.data.files}" if package.data.data.files
-    log.print "- Depends:      #{table.concat [x for x in pairs package.data.data.dependencies]}" if package.data.data.dependencies
+    log.print "- Depends:      #{table.concat [x for x in pairs package.data.data.dependencies], "  "}" if package.data.data.dependencies
     log.print "- Note:\n#{package.data.data.note}" if package.data.data.note
     log.print "- Repository:   https://github.com/#{package.repo}"
 
