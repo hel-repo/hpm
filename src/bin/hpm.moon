@@ -1149,6 +1149,7 @@ modules.hel = class extends modules.default
           log.info "Saved the manifest of '#{manifest.name}'."
         else
           log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
+      log.print "Done."
       return true
 
     packages = {}
@@ -1201,6 +1202,7 @@ modules.hel = class extends modules.default
         log.info "Saved the manifest of '#{manifest.name}'."
       else
         log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
+    log.print "Done."
 
   @remove: public (...) =>
     packages = {...}
@@ -1209,6 +1211,7 @@ modules.hel = class extends modules.default
       manifest = try loadManifest pkg, nil, "hel"
       insert manifests, manifest
     @_remove manifests, false
+    log.print "Done."
 
   -- Remove packages and its dependants
   @_remove: (manifests, noPlan=false, removeDeps=true) =>
@@ -1282,6 +1285,7 @@ modules.hel = class extends modules.default
         log.info "Saved the manifest of '#{manifest.name}'."
       else
         log.fatal "Couldn't save the manifest of '#{manifest.name}': #{reason}."
+    log.print "Done."
 
   @info: public (pkg, specString="*") =>
     log.fatal "Usage: hpm hel:info <package name> [<version specification>]" if empty pkg
@@ -1437,6 +1441,7 @@ modules.oppm = class extends modules.default
     log.print "- #{#programs} program#{plural #programs} cached."
     log.print "- #{#newFiles} package#{plural #newFiles} #{linkingVerb #newFiles} new."
     log.print "- #{#oldFiles} package#{plural #oldFiles} no longer exist#{singular #oldFiles}."
+    log.print "Done."
     true
 
   @parseLocalPath: (prefix, lPath) =>
@@ -1625,6 +1630,7 @@ modules.oppm = class extends modules.default
 
     log.print "- #{stats.packagesInstalled} package#{plural stats.packagesInstalled} installed."
     log.print "- #{stats.filesInstalled} file#{plural stats.filesInstalled} installed."
+    log.print "Done."
 
   @remove: public (...) =>
     packages = {...}
@@ -1633,6 +1639,7 @@ modules.oppm = class extends modules.default
       manifest = try loadManifest pkg, nil, "oppm"
       insert manifests, manifest
     @_remove manifests, false
+    log.print "Done."
 
   @_remove: (manifests, noPlan=false, removeDeps=true) =>
     deps = if not config.get("oppm", {}, true).get("remove_dependants", true) or not removeDeps
@@ -1753,7 +1760,7 @@ modules.oppm = class extends modules.default
     log.print "- Repository:   https://github.com/#{package.repo}"
 
 
--- Commands implementation -----------------------------------------------------
+-- Command implementation ------------------------------------------------------
 
 printPackageList = ->
   modList = try listFiles distPath
