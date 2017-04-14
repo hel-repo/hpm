@@ -6,8 +6,6 @@ Alternative app sources are supported: Pastebin, Gist, GitHub, direct links.
 
 Also you can define your own way of package distribution, via custom hpm modules.
 
-HPM is in very early development stage, so feel free to contribute.
-
 ## Features
  * Open source
  * Small
