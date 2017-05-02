@@ -994,7 +994,18 @@ modules.hel = class extends modules.default
     status, response = download @URL .. "packages/" .. name
     log.fatal "HTTP request error: " .. response unless status
     jsonData = ""
-    for chunk in response do jsonData ..= chunk
+    success, reason = xpcall -> for chunk in response do jsonData ..= chunk,
+      debug.traceback
+    unless success
+      output = {"HTTP request error.",
+                "Perhaps the package #{name} doesn't exist, or the Hel Repository went down.",
+                "Rerun with -v to see traceback."
+                "\nError details:\n#{reason}"}
+      if options.v
+        table.remove output, 3
+      else
+        table.remove output, 4
+      log.fatal table.concat output, "\n"
     decoded = json\decode jsonData
     log.fatal "Incorrect JSON format!\n#{jsonData}" unless decoded
     decoded.data
