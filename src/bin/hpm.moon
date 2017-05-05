@@ -923,18 +923,6 @@ pkgPlan = (plan) ->
 
 
 -- Distribution modules --------------------------------------------------------
---
--- Each module must provide several methods:
--- Required:
---   install(self, name, meta)    -- install files from given package data
---                                -- must return 'package manifest'
---                                -- (installed package description table)
--- Optional:
---   remove(self, manifest)       -- remove files
---   save(self, name, meta)       -- download package without installation
---
--- Omitted methods will be replaced with default implementations
-
 -- Default module
 modules.default = class
   @install: -> log.fatal "Incorrect source is provided! No default 'install' implementation."
@@ -1119,6 +1107,21 @@ modules.hel = class extends modules.default
         unresolved[#unresolved] = nil
     resolved
 
+  @fileConflicts: (packages) =>
+    if options.f or options.force
+      log.info "File conflict checking skipped: --force option given."
+      return true
+    log.info "Checking for file conflicts..."
+    conflictsDetected = false
+    for pkg in *packages
+      for file in *pkg.files
+        if exists file.path
+          log.warn "'#{pkg.name}' wants to override node at '#{file.path}'"
+          conflictsDetected = true
+    if conflictsDetected
+      log.fatal "File conflicts detected; terminating."
+    return true
+
   @install: public (...) =>
     if options.l or options.local then
       path = shell.resolve ...
@@ -1134,6 +1137,8 @@ modules.hel = class extends modules.default
         insert toInstall, "#{manifest.name}@#{manifest.version}"
 
       pkgPlan { install: toInstall }
+
+      @fileConflicts [x.pkg for x in *dependencyGraph]
 
       for i = 1, #dependencyGraph, 1
         node = dependencyGraph[i]
@@ -1195,6 +1200,8 @@ modules.hel = class extends modules.default
       install: toInstall,
       reinstall: toReinstall
     }
+
+    @fileConflicts [x.pkg for x in *dependencyGraph when not isin "#{x.pkg.name}@#{x.pkg.version}", toReinstall]
 
     if reinstall
       manifests = for pkg in *packages
@@ -1788,7 +1795,7 @@ printPackageList = ->
   log.print "No packages installed." if empty
 
 
--- App working -----------------------------------------------------------------
+-- Main ------------------------------------------------------------------------
 
 -- Parse command line arguments
 parseArguments = (...) ->
