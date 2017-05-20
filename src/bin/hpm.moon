@@ -654,10 +654,6 @@ singular = (amount) -> amount != 1 and "" or "s"
 -- Choose between "are" and "is" depending on the given amount
 linkingVerb = (amount) -> amount == 1 and "is" or "are"
 
--- Return (source, name, meta) from "[<source>:]<name>[@<meta>]" string
-parsePackageName = (value) ->
-  value\match("^([^:]-):?([^:@]+)@?([^:@]*)$")
-
 -- Recursive remove
 remove = (path) ->
   if fs.get(shell.resolve(path)).isReadOnly!
@@ -843,7 +839,7 @@ wrapResponse = (resp, file) ->
   ->
     result, chunk = pcall resp
     unless result
-      false, "Could not download '#{file}': #{chunk}"
+      false, "#{chunk}"
     else
       chunk
 
@@ -856,8 +852,6 @@ recv = (url, connectError="Could not download '%s': %s", downloadError="Could no
       data ..= chunk
     else
       return false, downloadError\format url, reason
-  -- if empty data
-  --   return false, downloadError\format url, "empty response"
   data
 
 confirm = ->
