@@ -1149,9 +1149,10 @@ modules.hel = class extends modules.default
 
         -- just copy/paste
         for key, file in pairs manifest.files
-          if not existsDir concat file.dir, file.name
-            makeDirectory file.dir
-          result, reason = copy concat(path, file.url), concat(file.dir, file.name)
+          filePath = file.path or concat file.dir, file.name
+          if not existsDir fs.path filePath
+            makeDirectory fs.path filePath
+          result, reason = copy concat(path, file.url), filePath
           log.fatal "Cannot copy file '#{file.name}': #{reason}" unless result
 
         success, reason = saveManifest manifest, "hel"
