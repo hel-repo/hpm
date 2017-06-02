@@ -1110,7 +1110,7 @@ modules.hel = class extends modules.default
     for pkg in *packages
       for file in *pkg.files
         if exists file.path
-          log.warn "'#{pkg.name}' wants to override node at '#{file.path}'"
+          log.error "'#{pkg.name}' wants to override node at '#{file.path}'"
           conflictsDetected = true
     if conflictsDetected
       log.fatal "File conflicts detected; terminating."
