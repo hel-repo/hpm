@@ -1155,6 +1155,7 @@ modules.hel = class extends modules.default
           result, reason = copy concat(path, file.url), filePath
           log.fatal "Cannot copy file '#{file.name}': #{reason}" unless result
 
+        manifest.local = true
         success, reason = saveManifest manifest, "hel"
         if success
           log.info "Saved the manifest of '#{manifest.name}'."
@@ -1247,7 +1248,8 @@ modules.hel = class extends modules.default
     installed = {}
     for file in try listFiles concat distPath, "hel"
       unless isDirectory concat distPath, "hel", file
-        insert installed, try loadManifest file, nil, "hel"
+        manifest = try loadManifest file, nil, "hel"
+        insert installed, manifest unless manifest.local
 
     upgradable = {}
     for pkg in *installed
