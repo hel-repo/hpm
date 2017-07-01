@@ -37,6 +37,9 @@ METHOD-SPECIFIC OPTIONS
     -s, --save
       Place the package in a directory in PWD instead of installing it globally.
 
+    -f, --force
+      Don't check for file conflicts when installing packages.
+
 MODULE-SPECIFIC METHODS
   hel:info <package name> [<version specification>]
     Print information about a package.
@@ -79,7 +82,7 @@ MANIFEST
   ...
  },
  files={
-  {url="docs/program", dir="/usr/man", name="program"},
+  {url="docs/program", path="/usr/man/program"},
   ...
  }}
 
