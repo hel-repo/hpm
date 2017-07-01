@@ -1567,6 +1567,17 @@ modules.oppm = class extends modules.default
       -- Directory contents token
       if rPath\sub(1, 1) == ":"
         rFiles = @resolveDirectory repo, rPath\sub(2, rPath\find("/") - 1, nil), rPath\sub rPath\find("/") + 1
+      -- Config file token
+      elseif rPath\sub(1, 1) == "?"
+        if exists concat(@parseLocalPath(prefix, lPath), fs.name(rPath))
+          rFiles = {}
+        else
+          remotePath = rPath\sub(2, -1)
+          rFiles = {{
+            name: fs.name remotePath,
+            path: remotePath,
+            url: @FILES\format repo, remotePath
+          }}
       else
         rFiles = {{
           name: fs.name rPath,
