@@ -514,7 +514,7 @@ semver = (() ->
 import isAvailable from require "component"
 import parse, getWorkingDirectory from require "shell"
 shell = require "shell"
-import isDirectory, exists, makeDirectory, concat, copy from require "filesystem"
+import isDirectory, exists, makeDirectory, concat, copy, lastModified from require "filesystem"
 fs = require "filesystem"
 import serialize, unserialize from require "serialization"
 import pull from require "event"
@@ -568,7 +568,17 @@ oppm = {}
 oppm.cache_file = "/var/cache/hpm/oppm"
 
 -- See hel.remove_dependants above.
-oppm.remove_dependants = true]]
+oppm.remove_dependants = true
+
+-- Connect additional GitHub repositories not present in OpenPrograms' list.
+-- The format is the same as in the oppm.cfg file at OpenPrograms:
+-- https://github.com/OpenPrograms/openprograms.github.io/blob/master/repos.cfg
+oppm.custom_repos = {
+  -- ["My-Super-Repository"] = {
+  --   repo="My-GitHub-Username/my-programs"
+  -- }
+}
+]]
 
 
 -- Logging functions -----------------------------------------------------------
@@ -653,6 +663,33 @@ singular = (amount) -> amount != 1 and "" or "s"
 
 -- Choose between "are" and "is" depending on the given amount
 linkingVerb = (amount) -> amount == 1 and "is" or "are"
+
+-- Recursively adds values from head to base
+deepPatch = (base, head) ->
+  for k, v in pairs head
+    if type(v) ~= "table" or type(base[k]) ~= "table"
+      base[k] = v
+    else
+      deepPatch base[k], v
+
+-- Deep copy of a table
+deepCopy = (tbl) ->
+  if type(tbl) ~= "table" then
+    return tbl
+  result = {}
+  for k, v in pairs(tbl) do
+    result[k] = deepCopy v
+
+  return result
+
+-- Returns real time if it can
+getRealTime = ->
+  with file = io.open "/tmp/hpm-time", "w"
+    \write ""
+    \close!
+  result = lastModified "/tmp/hpm-time"
+  fs.remove "/tmp/hpm-time"
+  return result
 
 -- Recursive remove
 remove = (path) ->
@@ -1375,6 +1412,13 @@ modules.oppm = class extends modules.default
       file\close!
     path
 
+  @notifyCacheUpdate: (updated) =>
+    currentTime = getRealTime!
+    diff = currentTime - updated
+    if diff > 24 * 60 * 60 * 1000
+      log.print "Cache was last updated more than a day ago."
+      log.print "Consider running hpm oppm:cache update to update it."
+
   @listCache: =>
     local list
     cachePath = @cacheFile!
@@ -1384,6 +1428,10 @@ modules.oppm = class extends modules.default
       list, reason = unserialize all
       return false, "Cache is malformed: #{reason}" unless list
       \close!
+
+    if not list.updated or not list.cache
+      list = { updated: 0, cache: list }
+
     list
 
   @resolveDirectory: (repo, branch, path) =>
@@ -1398,9 +1446,19 @@ modules.oppm = class extends modules.default
     unless oldFiles
       log.error "Old cache is malformed: #{oldFiles}"
       oldFiles = {}
+    else
+      oldFiles = oldFiles.cache
+
     repos, reason = recv @REPOS
     return false, "Could not fetch #{@REPOS}: #{reason}" unless repos
+
     repos = unserialize repos
+
+    customRepos = {}
+    for k, v in pairs deepCopy config.get("oppm", {}, true).get("custom_repos", {})
+      customRepos["local/#{k}"] = v
+    deepPatch repos, customRepos
+
     programs = {}
     for repo, repoData in pairs repos
       if repoData.repo
@@ -1409,6 +1467,7 @@ modules.oppm = class extends modules.default
         unless result and response
           log.error "Could not fetch '#{repo}' at '#{repoData.repo}': #{reason}"
           continue
+
         data = ""
         for result, chunk in -> pcall response
           if not result
@@ -1418,26 +1477,33 @@ modules.oppm = class extends modules.default
           else
             break if not chunk
             data ..= chunk
+
         if data == false
           continue
         if empty data
           log.error "Could not fetch '#{repo}' at '#{repoData.repo}'"
           continue
+
         repoPrograms, reason = unserialize data
         if not repoPrograms
           log.error "Manifest '#{repo}' at '#{repoData.repo}' is malformed: #{reason}"
           continue
+
         for prg, prgData in pairs repoPrograms
           if prg\match "[^A-Za-z0-9._-]"
             log.error "Package name contains illegal characters: #{repo}:#{prg}!"
             continue
           insert programs, { repo: repoData.repo, name: prg, data: prgData }
+
     newFiles = {}
     newCache = {}
+
     for { :name, :repo, :data } in *programs
       if isin concat(repo, name), newFiles
         log.error "There're multiple packages under the same name: #{name}!"
+
       insert newCache, { pkg: name, :repo, data: { :name, :repo, :data } }
+
       local k
       do
         for key, v in pairs oldFiles
@@ -1448,15 +1514,17 @@ modules.oppm = class extends modules.default
         table.remove oldFiles, k
       else
         insert newFiles, concat repo, name
+
     file, reason = io.open cacheFile, "w"
     return false, "Could not open '#{cacheFile}' for writing: #{reason}" unless file
+
     with file
-      \write serialize newCache
+      \write serialize { updated: getRealTime!, cache: newCache }
       \close!
+
     log.print "- #{#programs} program#{plural #programs} cached."
     log.print "- #{#newFiles} package#{plural #newFiles} #{linkingVerb #newFiles} new."
     log.print "- #{#oldFiles} package#{plural #oldFiles} no longer exist#{singular #oldFiles}."
-    log.print "Done."
     true
 
   @parseLocalPath: (prefix, lPath) =>
@@ -1467,6 +1535,7 @@ modules.oppm = class extends modules.default
 
   @rawInstall: (name, prefix="/", isManuallyInstalled=false, save=false) =>
     cacheList = try @listCache!
+    cacheList = cacheList.cache
     stats = {
       filesInstalled: 0,
       packagesInstalled: 0
@@ -1532,6 +1601,7 @@ modules.oppm = class extends modules.default
 
   @resolveDependencies: (packages, isReinstalling, resolved={}, unresolved={}, result={}) =>
     cacheList = try @listCache!
+    cacheList = cacheList.cache
     for name in *packages
       isResolved = false
       for pkg in *resolved
@@ -1613,6 +1683,8 @@ modules.oppm = class extends modules.default
     result
 
   @install: public (...) =>
+    cacheList = try @listCache!
+    @notifyCacheUpdate cacheList.updated
     packages = {...}
     reinstall = options.r or options.reinstall
     save = options.s or options.save
@@ -1726,7 +1798,9 @@ modules.oppm = class extends modules.default
     true
 
   @search: public (...) =>
-    list = try @listCache!
+    cache = try @listCache!
+    @notifyCacheUpdate cache.updated
+    list = try cache.cache
     found = {}
     if ...
       for { :data } in *list
@@ -1757,6 +1831,7 @@ modules.oppm = class extends modules.default
   @info: public (name) =>
     log.fatal "Usage: hpm oppm:info <package name>" if empty name
     list = try @listCache!
+    list = list.cache
     package = nil
     for pkg in *list
       if pkg.pkg == name
