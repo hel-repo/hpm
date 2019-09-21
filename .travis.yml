@@ -10,8 +10,7 @@ addons:
     - python3
     - curl
 before_install:
-- openssl aes-256-cbc -K $encrypted_56943c0e824c_key -iv $encrypted_56943c0e824c_iv
-  -in publish.sh.enc -out .travis/publish.sh -d
+- openssl aes-256-cbc -K $encrypted_fd3ec3406f90_key -iv $encrypted_fd3ec3406f90_iv -in publish.sh.enc -out .travis/publish.sh -d
 - source .travis/setenv_lua.sh
 install:
 - luarocks install moonscript
