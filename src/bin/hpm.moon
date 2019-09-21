@@ -837,7 +837,7 @@ saveManifest = (manifest, mod="hel", path=concat(distPath, mod), name=manifest.n
   if not existsDir path
     result, reason = makeDirectory path
     if not result
-      return false, "Failed to create '#{concat path, mod}' directory for manifest files: #{reason}"
+      return false, "Failed to create '#{path}' directory for manifest files: #{reason}"
 
   file, reason = io.open concat(path, name), "w"
   if file
@@ -1248,7 +1248,10 @@ modules.hel = class extends modules.default
           manual = true
           break
       manifest = @rawInstall node.pkg, manual, save
-      success, reason = saveManifest manifest, "hel"
+      manifestPath = if save
+        concat getWorkingDirectory!, pkgData.name
+
+      success, reason = saveManifest manifest, "hel", manifestPath
       if success
         log.info "Saved the manifest of '#{manifest.name}'."
       else
