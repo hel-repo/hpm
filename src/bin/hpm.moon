@@ -1249,7 +1249,7 @@ modules.hel = class extends modules.default
           break
       manifest = @rawInstall node.pkg, manual, save
       manifestPath = if save
-        concat getWorkingDirectory!, pkgData.name
+        concat getWorkingDirectory!, manifest.name
 
       success, reason = saveManifest manifest, "hel", manifestPath
       if success
